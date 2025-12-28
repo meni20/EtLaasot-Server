@@ -3,16 +3,16 @@ import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
 import { AppController } from './app.controller';
 import { SequelizeModule } from '@nestjs/sequelize';
-import VolunteerService from './modules/volunteer/volunteer.service';
-import { VolunteerModule } from './modules/volunteer/volunteer.module';
-import Volunteer from './modules/volunteer/entities/volunteer.entity';
-import VolunteerController from './modules/volunteer/volunteer.controller';
-import VolunteerRepository from './modules/volunteer/volunteer.repository';
+import UserService from './modules/user/user.service';
+import User from './modules/user/entities/user.entity';
+import { UserModule } from './modules/user/user.module';
+import UserController from './modules/user/user.controller';
+import UserRepository from './modules/user/user.repository';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    VolunteerModule,
+    UserModule,
     SequelizeModule.forRoot({
       dialect: 'postgres',
       host: process.env.DB_HOST,
@@ -32,9 +32,9 @@ import VolunteerRepository from './modules/volunteer/volunteer.repository';
       autoLoadModels: true,
       synchronize: true,
     }),
-    SequelizeModule.forFeature([Volunteer]),
+    SequelizeModule.forFeature([User]),
   ],
-  controllers: [AppController, VolunteerController],
-  providers: [AppService, VolunteerRepository, VolunteerService],
+  controllers: [AppController, UserController],
+  providers: [AppService, UserRepository, UserService],
 })
 export class AppModule {}
