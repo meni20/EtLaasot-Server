@@ -2,6 +2,8 @@ import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { UserModule } from './modules/user/user.module';
+import { EventModule } from './modules/event/event.module';
+import { AttendeeModule } from './modules/attendee/attendee.module';
 import { UserRoleModule } from './modules/user-role/user-role.module';
 
 @Module({
@@ -25,11 +27,13 @@ import { UserRoleModule } from './modules/user-role/user-role.module';
       },
 
       autoLoadModels: true,
-      synchronize: false,
+      synchronize: true,
     }),
 
     UserModule,
+    EventModule,
     UserRoleModule,
+    AttendeeModule,
   ],
 })
 export class AppModule {}

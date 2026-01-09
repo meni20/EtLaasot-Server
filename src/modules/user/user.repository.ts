@@ -19,7 +19,7 @@ export default class UserRepository {
       include: [
         {
           model: UserRole,
-          where: { role: roleId },
+          where: { roleId: roleId },
           attributes: [],
         },
       ],
