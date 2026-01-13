@@ -5,36 +5,35 @@ import {
   HasMany,
   DataType,
   PrimaryKey,
+  AutoIncrement,
 } from 'sequelize-typescript';
 import { IEvent } from '../interfaces/event.interface';
 import User from 'src/modules/user/entities/user.entity';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 
-@Table({
-  tableName: 'event',
-  paranoid: true,
-  timestamps: true,
-})
+@Table({ tableName: "event", paranoid: true, timestamps: true })
 export default class Event extends Model<IEvent> {
   @PrimaryKey
-  @Column(DataType.UUID)
-  declare id: string;
+  @AutoIncrement
+  @Column(DataType.INTEGER)
+  declare id: number;
 
   @Column(DataType.STRING)
-  name: string;
+  declare name: string;
 
   @Column(DataType.STRING)
-  description: string;
+  declare description: string;
 
-  @Column({ field: 'start_date', type: DataType.DATE })
-  startDate: Date;
+  @Column({ field: "start_date", type: DataType.DATE })
+  declare startDate: Date;
 
-  @Column({ field: 'end_date', type: DataType.DATE })
-  endDate: Date;
+  @Column({ field: "end_date", type: DataType.DATE })
+  declare endDate: Date;
 
   @Column(DataType.STRING)
-  address: string;
+  declare address: string;
 
   @HasMany(() => Attendee)
-  attendees: User[];
+  declare attendees: User[];
 }
+  

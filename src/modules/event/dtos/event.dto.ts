@@ -1,8 +1,10 @@
+import { Type } from 'class-transformer';
 import {
   IsString,
   IsDateString,
   IsOptional,
   IsNotEmpty,
+  IsDate,
 } from 'class-validator';
 
 export class CreateEventDto {

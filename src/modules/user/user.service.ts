@@ -46,7 +46,7 @@ export default class UserService {
 
   public getAllVolunteers() {
     try {
-      return this.userRepository.getAllVolunteers(AUTH_ROLES.VOLUNTEER.id);
+      return this.userRepository.getAllVolunteers();
     } catch (err) {
       throw new InternalServerErrorException(err);
     }

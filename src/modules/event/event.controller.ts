@@ -7,7 +7,7 @@ import { CreateEventDto } from './dtos/event.dto';
 export default class EventController {
   constructor(private readonly eventService: EventService) {}
 
-  @Post()
+  @Post('create-event')
   public async createEvent(@Body() eventData: CreateEventDto) {
     return await this.eventService.createEvent(eventData);
   }

@@ -16,7 +16,12 @@ export default class EventService {
 
   public async createEvent(eventData: IEvent) {
     try {
-      const event = await this.eventRepository.create(eventData);
+      const payload = {
+        ...eventData,
+        startDate: new Date(eventData.startDate),
+        endDate: new Date(eventData.endDate),
+      }
+      const event = await this.eventRepository.create(payload);
       return event;
     } catch (error) {
       throw new InternalServerErrorException('Failed to create event');
@@ -34,7 +39,7 @@ export default class EventService {
 
   public addAttendee(userId: string, eventId: string) {
     try {
-      return this.attendeeService.createAttendee(userId, eventId);
+      return this.attendeeService.addAttendee(userId, eventId);
     } catch (error) {
       throw new InternalServerErrorException('Failed to add attendee');
     }
