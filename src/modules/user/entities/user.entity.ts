@@ -2,11 +2,10 @@ import {
   Model,
   Table,
   Column,
+  HasMany,
   DataType,
   AllowNull,
   PrimaryKey,
-  HasMany,
-  BelongsToMany,
 } from 'sequelize-typescript';
 import { IUser } from '../interfaces/user.interface';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
