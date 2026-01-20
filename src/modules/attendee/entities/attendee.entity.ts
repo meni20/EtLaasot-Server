@@ -24,8 +24,8 @@ export default class Attendee extends Model {
   userId: string;
 
   @BelongsTo(() => Event)
-  event: Event;
+  declare event: Event;
 
   @BelongsTo(() => User)
-  user: User;
+  declare user: User;
 }

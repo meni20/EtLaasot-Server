@@ -20,7 +20,7 @@ export default class EventService {
         ...eventData,
         startDate: new Date(eventData.startDate),
         endDate: new Date(eventData.endDate),
-      }
+      };
       const event = await this.eventRepository.create(payload);
       return event;
     } catch (error) {
@@ -30,9 +30,10 @@ export default class EventService {
 
   public async findAllEvents() {
     try {
-      const events = await this.eventRepository.findAll();
-      return events;
+      return await this.eventRepository.findAll();
     } catch (error) {
+      console.log(error);
+
       throw new InternalServerErrorException('Failed to fetch events');
     }
   }
