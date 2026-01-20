@@ -1,18 +1,15 @@
 import { Module } from '@nestjs/common';
-import { AppService } from './app.service';
 import { ConfigModule } from '@nestjs/config';
-import { AppController } from './app.controller';
 import { SequelizeModule } from '@nestjs/sequelize';
-import UserService from './modules/user/user.service';
-import User from './modules/user/entities/user.entity';
 import { UserModule } from './modules/user/user.module';
-import UserController from './modules/user/user.controller';
-import UserRepository from './modules/user/user.repository';
+import { EventModule } from './modules/event/event.module';
+import { AttendeeModule } from './modules/attendee/attendee.module';
+import { UserRoleModule } from './modules/user-role/user-role.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
-    UserModule,
+
     SequelizeModule.forRoot({
       dialect: 'postgres',
       host: process.env.DB_HOST,
@@ -32,9 +29,11 @@ import UserRepository from './modules/user/user.repository';
       autoLoadModels: true,
       synchronize: true,
     }),
-    SequelizeModule.forFeature([User]),
+
+    UserModule,
+    EventModule,
+    UserRoleModule,
+    AttendeeModule,
   ],
-  controllers: [AppController, UserController],
-  providers: [AppService, UserRepository, UserService],
 })
 export class AppModule {}

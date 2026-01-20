@@ -2,11 +2,14 @@ import {
   Model,
   Table,
   Column,
+  HasMany,
   DataType,
   AllowNull,
   PrimaryKey,
 } from 'sequelize-typescript';
 import { IUser } from '../interfaces/user.interface';
+import Attendee from 'src/modules/attendee/entities/attendee.entity';
+import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 
 @Table({
   tableName: 'user',
@@ -21,7 +24,7 @@ export default class User extends Model<IUser> {
   @Column(DataType.STRING)
   name: string;
 
-  @Column(DataType.STRING)
+  @Column({ field: 'phone_number', type: DataType.STRING })
   phoneNumber: string;
 
   @AllowNull
@@ -35,4 +38,10 @@ export default class User extends Model<IUser> {
   @AllowNull
   @Column(DataType.INTEGER)
   age: number;
+
+  @HasMany(() => UserRole)
+  userRoles: UserRole[];
+
+  @HasMany(() => Attendee)
+  attendees: Attendee[];
 }
