@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import { Body, Controller, Get, Param, Post } from '@nestjs/common';
 import EventService from './event.service';
 import { IEvent } from './interfaces/event.interface';
 import { CreateEventDto } from './dtos/event.dto';
@@ -25,5 +25,9 @@ export default class EventController {
       attendeeData.userId,
       attendeeData.eventId,
     );
+  }
+  @Post('get-attendees-by-event/:eventId')
+  public async getAttendeesByEvent(@Param('eventId') eventId: string) {    
+    return await this.eventService.getAllAttendeesByEvent(eventId);
   }
 }

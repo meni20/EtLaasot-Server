@@ -42,7 +42,16 @@ export default class EventService {
     try {
       return this.attendeeService.addAttendee(userId, eventId);
     } catch (error) {
-      throw new InternalServerErrorException('Failed to add attendee');
+      throw new InternalServerErrorException('Failed to add attendee to event', error);
+    }
+  }
+
+  public getAllAttendeesByEvent(eventId: string) {
+    try {
+      return this.attendeeService.getAllAttendeesByEvent(eventId);
+    } catch (error) {
+      console.log(error);
+      
     }
   }
 }

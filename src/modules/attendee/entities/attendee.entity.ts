@@ -17,12 +17,12 @@ import Event from 'src/modules/event/entities/event.entity';
 export default class Attendee extends Model {
   @ForeignKey(() => Event)
   @Column(DataType.UUID)
-  eventId: string;
+  declare eventId: string;
 
   @ForeignKey(() => User)
   @Column(DataType.STRING)
-  userId: string;
-
+  declare userId: string;
+  
   @BelongsTo(() => Event)
   declare event: Event;
 

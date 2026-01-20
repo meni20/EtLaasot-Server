@@ -20,4 +20,12 @@ export default class AttendeeService {
       throw new InternalServerErrorException('Failed to create attendee');
     }
   }
+
+  public async getAllAttendeesByEvent(eventId: string) {
+    try {
+      return await this.attendeeRepository.getAttendeesByEvent(eventId);
+    } catch (error) {
+      console.log(error);
+    }
+  }
 }

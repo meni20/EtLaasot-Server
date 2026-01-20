@@ -22,26 +22,26 @@ export default class User extends Model<IUser> {
   declare id: string;
 
   @Column(DataType.STRING)
-  name: string;
+  declare name: string;
 
   @Column({ field: 'phone_number', type: DataType.STRING })
-  phoneNumber: string;
+  declare phoneNumber: string;
 
   @AllowNull
   @Column(DataType.STRING)
-  address: string;
+  declare address: string;
 
   @AllowNull
   @Column(DataType.STRING)
-  email: string;
+  declare email: string;
 
   @AllowNull
   @Column(DataType.INTEGER)
-  age: number;
+  declare age: number;
 
   @HasMany(() => UserRole)
-  userRoles: UserRole[];
+  declare userRoles: UserRole[];
 
   @HasMany(() => Attendee)
-  attendees: Attendee[];
+  declare attendees: Attendee[];
 }

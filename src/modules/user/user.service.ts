@@ -32,13 +32,30 @@ export default class UserService {
     });
   }
 
+  async createTraineeWithRole(userData: IUser) {
+    return await this.sequelize.transaction(async (transaction) => {
+      const user = await this.userRepository.create(userData, transaction);
+      await this.userRoleService.asignRoleToUser(
+        user.id,
+        AUTH_ROLES.TRAINEE.id,
+        user.name,
+        transaction,
+      );
+      return user;
+    });
+  }
+
   public getAllUsers() {
     try {
-      const a = this.userRepository.getAllUsers();
+      return this.userRepository.getAllUsers();
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
 
-      console.log(a);
-
-      return a;
+  public getAllTrainees() {
+    try {
+      return this.userRepository.getAllTrainees();
     } catch (err) {
       throw new InternalServerErrorException(err);
     }

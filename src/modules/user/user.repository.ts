@@ -26,4 +26,15 @@ export default class UserRepository {
       ],
     });
   }
+  public async getAllTrainees() {
+    return await User.findAll({
+      include: [
+        {
+          model: UserRole,
+          where: { roleId: AUTH_ROLES.TRAINEE.id },
+          attributes: [],
+        },
+      ],
+    });
+  }
 }
