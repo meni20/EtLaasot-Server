@@ -4,6 +4,7 @@ import { Injectable } from '@nestjs/common';
 import { IUser } from './interfaces/user.interface';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import UserRole from '../user-role/enitites/user-role.entity';
+import Event from '../event/entities/event.entity';
 
 @Injectable()
 export default class UserRepository {
@@ -14,9 +15,11 @@ export default class UserRepository {
   public async getAllUsers() {
     return await User.findAll({
       include: [
+        UserRole,
         {
-          model: UserRole,
-          attributes: ["roleId"],
+          model: Event,
+          through: { attributes: [] },
+          required: false,
         },
       ],
     });

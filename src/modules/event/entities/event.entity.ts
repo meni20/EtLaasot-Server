@@ -7,6 +7,7 @@ import {
   PrimaryKey,
   AutoIncrement,
   Default,
+  BelongsToMany,
 } from 'sequelize-typescript';
 import { IEvent } from '../interfaces/event.interface';
 import User from 'src/modules/user/entities/user.entity';
@@ -38,4 +39,7 @@ export default class Event extends Model<IEvent> {
 
   @HasMany(() => Attendee)
   declare attendees: Attendee[];
+
+  @BelongsToMany(() => User, () => Attendee)
+  users: User[];
 }

@@ -6,8 +6,10 @@ import {
   DataType,
   AllowNull,
   PrimaryKey,
+  BelongsToMany,
 } from 'sequelize-typescript';
 import { IUser } from '../interfaces/user.interface';
+import Event from 'src/modules/event/entities/event.entity';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 
@@ -44,4 +46,7 @@ export default class User extends Model<IUser> {
 
   @HasMany(() => Attendee)
   declare attendees: Attendee[];
+
+  @BelongsToMany(() => Event, () => Attendee)
+  declare events: Event[];
 }
