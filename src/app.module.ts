@@ -1,29 +1,39 @@
-import { env } from 'process';
 import { Module } from '@nestjs/common';
-import { AppService } from './app.service';
-import { ConfigModule } from '@nestjs/config'
-import { AppController } from './app.controller';
+import { ConfigModule } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
-
+import { UserModule } from './modules/user/user.module';
+import { EventModule } from './modules/event/event.module';
+import { AttendeeModule } from './modules/attendee/attendee.module';
+import { UserRoleModule } from './modules/user-role/user-role.module';
 
 @Module({
   imports: [
     ConfigModule.forRoot(),
+
     SequelizeModule.forRoot({
       dialect: 'postgres',
-      host: "localhost",
+      host: process.env.DB_HOST,
       port: 5432,
-      username: "postgres",
-      password: "me6789",
-      database: "Et-Laasot",
+      username: process.env.DB_USER,
+      password: process.env.DB_PASS,
+      database: process.env.DB_NAME,
+
+      ssl: true,
+      dialectOptions: {
+        ssl: {
+          require: true,
+          rejectUnauthorized: false,
+        },
+      },
+
       autoLoadModels: true,
       synchronize: true,
-      logging: console.log,
     }),
-    SequelizeModule.forFeature(),
+
+    UserModule,
+    EventModule,
+    UserRoleModule,
+    AttendeeModule,
   ],
-  controllers: [AppController],
-  providers: [AppService],
 })
 export class AppModule {}
-
