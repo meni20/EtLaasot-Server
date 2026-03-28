@@ -1,10 +1,6 @@
 import UserRepository from './user.repository';
 import { IUser } from './interfaces/user.interface';
-import {
-  Inject,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
@@ -26,6 +22,7 @@ export default class UserService {
         AUTH_ROLES.VOLUNTEER.id,
         user.name,
         transaction,
+        userData.branchId,
       );
 
       return user;
@@ -40,30 +37,47 @@ export default class UserService {
         AUTH_ROLES.TRAINEE.id,
         user.name,
         transaction,
+        userData.branchId,
       );
       return user;
     });
   }
 
-  public getAllUsers() {
+  public getAllUsers(branchId?: string) {
     try {
-      return this.userRepository.getAllUsers();
+      return this.userRepository.getAllUsers(branchId);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllTrainees() {
+  public getAllTrainees(branchId?: string) {
     try {
-      return this.userRepository.getAllTrainees();
+      return this.userRepository.getAllTrainees(branchId);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllVolunteers() {
+  public getAllVolunteers(branchId?: string) {
     try {
-      return this.userRepository.getAllVolunteers();
+      return this.userRepository.getAllVolunteers(branchId);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public countByBranchAndRole(branchId: string, roleId: number) {
+    try {
+      return this.userRepository.countByBranchAndRole(branchId, roleId);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findById(id: string) {
+    try {
+      return this.userRepository.findById(id);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }

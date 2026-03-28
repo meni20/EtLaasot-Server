@@ -1,14 +1,14 @@
-import { IsISO8601, IsOptional, IsString } from "class-validator";
+import { IsISO8601, IsOptional, IsString } from 'class-validator';
 
 export class PublishEventDto {
   @IsString()
   name: string;
 
   @IsISO8601()
-  startDate: string; 
+  startDate: string;
 
   @IsISO8601()
-  endDate: string;   
+  endDate: string;
 
   @IsString()
   address: string;

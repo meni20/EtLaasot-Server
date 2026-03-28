@@ -5,6 +5,10 @@ import { UserModule } from './modules/user/user.module';
 import { EventModule } from './modules/event/event.module';
 import { AttendeeModule } from './modules/attendee/attendee.module';
 import { UserRoleModule } from './modules/user-role/user-role.module';
+import { AuthModule } from './modules/auth/auth.module';
+import { BranchModule } from './modules/branch/branch.module';
+import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assignment.module';
+import Role from './modules/roles/enitites/roles.entity';
 
 @Module({
   imports: [
@@ -27,13 +31,18 @@ import { UserRoleModule } from './modules/user-role/user-role.module';
       },
 
       autoLoadModels: true,
-      synchronize: true,
+      sync: { alter: true },
     }),
 
+    SequelizeModule.forFeature([Role]),
+
     UserModule,
+    AuthModule,
     EventModule,
     UserRoleModule,
     AttendeeModule,
+    BranchModule,
+    MentorAssignmentModule,
   ],
 })
-export class AppModule {}
+export class AppModule { }

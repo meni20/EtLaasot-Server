@@ -20,12 +20,12 @@ import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 })
 export default class Role extends Model<IRole> {
   @PrimaryKey
-  @Column(DataType.STRING)
+  @Column(DataType.INTEGER)
   declare id: number;
 
   @Column(DataType.STRING)
-  name: string;
+  declare name: string;
 
   @BelongsToMany(() => User, () => UserRole)
-  users: User[];
+  declare users: User[];
 }

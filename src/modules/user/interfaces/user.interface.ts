@@ -5,6 +5,7 @@ export interface IUser {
   address: string;
   email: string;
   age: number;
+  branchId?: string;
 
   // Timestamps
   createdAt?: Date;

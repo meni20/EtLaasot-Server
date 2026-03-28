@@ -6,12 +6,15 @@ import {
   DataType,
   AllowNull,
   PrimaryKey,
+  ForeignKey,
+  BelongsTo,
   BelongsToMany,
 } from 'sequelize-typescript';
 import { IUser } from '../interfaces/user.interface';
 import Event from 'src/modules/event/entities/event.entity';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
+import Branch from 'src/modules/branch/entities/branch.entity';
 
 @Table({
   tableName: 'user',
@@ -40,6 +43,14 @@ export default class User extends Model<IUser> {
   @AllowNull
   @Column(DataType.INTEGER)
   declare age: number;
+
+  @ForeignKey(() => Branch)
+  @AllowNull
+  @Column(DataType.STRING(50))
+  declare branchId: string;
+
+  @BelongsTo(() => Branch)
+  declare branch: Branch;
 
   @HasMany(() => UserRole)
   declare userRoles: UserRole[];

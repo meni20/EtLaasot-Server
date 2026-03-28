@@ -1,4 +1,4 @@
-import { IsNotEmpty, IsNumber, IsString } from 'class-validator';
+import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class UserDto {
   @IsNotEmpty()
@@ -19,4 +19,8 @@ export class UserDto {
 
   @IsNumber()
   age: number;
+
+  @IsString()
+  @IsOptional()
+  branchId?: string;
 }

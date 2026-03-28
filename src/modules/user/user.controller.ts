@@ -1,8 +1,18 @@
 import UserService from './user.service';
 import { UserDto } from './dtos/user.dto';
-import { Body, Controller, Get, Post } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  Get,
+  Param,
+  Post,
+  Query,
+  UseGuards,
+} from '@nestjs/common';
+import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 
 @Controller('user')
+@UseGuards(JwtAuthGuard)
 export default class UserController {
   constructor(private readonly userService: UserService) {}
 
@@ -17,17 +27,22 @@ export default class UserController {
   }
 
   @Get('get-all-volunteers')
-  public getAllUsers() {
-    return this.userService.getAllVolunteers();
+  public getAllVolunteers(@Query('branchId') branchId?: string) {
+    return this.userService.getAllVolunteers(branchId);
   }
 
   @Get('get-all-trainees')
-  public getAllTrainees() {
-    return this.userService.getAllTrainees();
+  public getAllTrainees(@Query('branchId') branchId?: string) {
+    return this.userService.getAllTrainees(branchId);
   }
 
   @Get('get-all')
-  public getAll() {
-    return this.userService.getAllUsers();
+  public getAll(@Query('branchId') branchId?: string) {
+    return this.userService.getAllUsers(branchId);
+  }
+
+  @Get(':userId')
+  public getUser(@Param('userId') userId: string) {
+    return this.userService.findById(userId);
   }
 }

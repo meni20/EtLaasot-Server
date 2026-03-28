@@ -2,6 +2,7 @@ import { Module, forwardRef } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import AttendeeService from './attendee.service';
 import AttendeeRepository from './attendee.repository';
+import AttendeeController from './attendee.controller';
 import Attendee from './entities/attendee.entity';
 import { EventModule } from '../event/event.module';
 
@@ -10,7 +11,8 @@ import { EventModule } from '../event/event.module';
     SequelizeModule.forFeature([Attendee]),
     forwardRef(() => EventModule),
   ],
+  controllers: [AttendeeController],
   providers: [AttendeeService, AttendeeRepository],
   exports: [AttendeeService],
 })
-export class AttendeeModule {}
+export class AttendeeModule { }

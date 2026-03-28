@@ -5,6 +5,8 @@ export interface IEvent {
   endDate: Date;
   address: string;
   description: string;
+  eventType?: string;
+  branchId?: string;
 
   // Timestamps
   createdAt?: Date;

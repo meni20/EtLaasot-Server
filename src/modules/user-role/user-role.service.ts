@@ -11,6 +11,7 @@ export default class UserRoleService {
     roleId: number,
     grantedBy: string,
     transaction?: Transaction,
+    branchId?: string,
   ) {
     try {
       return this.userRoleRepository.assignRoleToUser(
@@ -18,7 +19,16 @@ export default class UserRoleService {
         roleId,
         grantedBy,
         transaction,
+        branchId,
       );
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public async findRolesByUserId(userId: string) {
+    try {
+      return this.userRoleRepository.findRolesByUserId(userId);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }

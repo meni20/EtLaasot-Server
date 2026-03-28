@@ -12,8 +12,12 @@ export default class UserRepository {
     return await User.create(userData, { transaction });
   }
 
-  public async getAllUsers() {
+  public async getAllUsers(branchId?: string) {
+    const where: any = {};
+    if (branchId) where.branchId = branchId;
+
     return await User.findAll({
+      where,
       include: [
         UserRole,
         {
@@ -25,8 +29,12 @@ export default class UserRepository {
     });
   }
 
-  public async getAllVolunteers() {
+  public async getAllVolunteers(branchId?: string) {
+    const where: any = {};
+    if (branchId) where.branchId = branchId;
+
     return await User.findAll({
+      where,
       include: [
         {
           model: UserRole,
@@ -36,8 +44,13 @@ export default class UserRepository {
       ],
     });
   }
-  public async getAllTrainees() {
+
+  public async getAllTrainees(branchId?: string) {
+    const where: any = {};
+    if (branchId) where.branchId = branchId;
+
     return await User.findAll({
+      where,
       include: [
         {
           model: UserRole,
@@ -45,6 +58,31 @@ export default class UserRepository {
           attributes: [],
         },
       ],
+    });
+  }
+
+  public async countByBranchAndRole(branchId: string, roleId: number) {
+    return await User.count({
+      where: { branchId },
+      include: [
+        {
+          model: UserRole,
+          where: { roleId },
+          attributes: [],
+        },
+      ],
+    });
+  }
+
+  public async findByIdentifyId(identifyId: string) {
+    return await User.findOne({
+      where: { id: identifyId },
+    });
+  }
+
+  public async findById(id: string) {
+    return await User.findByPk(id, {
+      include: [UserRole],
     });
   }
 }

@@ -1,8 +1,4 @@
-import {
-  Inject,
-  Injectable,
-  InternalServerErrorException,
-} from '@nestjs/common';
+import { Injectable, InternalServerErrorException } from '@nestjs/common';
 import EventRepository from './event.repository';
 import { IEvent } from './interfaces/event.interface';
 import AttendeeService from '../attendee/attendee.service';
@@ -12,7 +8,7 @@ export default class EventService {
   constructor(
     private readonly eventRepository: EventRepository,
     private readonly attendeeService: AttendeeService,
-  ) {}
+  ) { }
 
   public async createEvent(eventData: IEvent) {
     try {
@@ -28,30 +24,57 @@ export default class EventService {
     }
   }
 
-  public async findAllEvents() {
+  public async findAllEvents(branchId?: string) {
     try {
-      return await this.eventRepository.findAll();
+      return await this.eventRepository.findAll(branchId);
     } catch (error) {
-      console.log(error);
-
       throw new InternalServerErrorException('Failed to fetch events');
     }
   }
 
-  public addAttendee(userId: string, eventId: string) {
+  public async addAttendee(userId: string, eventId: string) {
     try {
-      return this.attendeeService.addAttendee(userId, eventId);
+      return await this.attendeeService.addAttendee(userId, eventId);
     } catch (error) {
-      throw new InternalServerErrorException('Failed to add attendee to event', error);
+      throw new InternalServerErrorException(
+        'Failed to add attendee to event',
+      );
     }
   }
 
-  public getAllAttendeesByEvent(eventId: string) {
+  public async getAllAttendeesByEvent(eventId: string) {
     try {
-      return this.attendeeService.getAllAttendeesByEvent(eventId);
+      return await this.attendeeService.getAllAttendeesByEvent(eventId);
     } catch (error) {
-      console.log(error);
-      
+      throw new InternalServerErrorException(
+        'Failed to fetch attendees by event',
+      );
+    }
+  }
+
+  public async getUpcomingByBranch(branchId: string, limit: number) {
+    try {
+      return await this.eventRepository.getUpcomingByBranch(branchId, limit);
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch upcoming events');
+    }
+  }
+
+  public async getEventsByBranchAndDateRange(
+    branchId: string,
+    startDate: Date,
+    endDate: Date,
+  ) {
+    try {
+      return await this.eventRepository.getEventsByBranchAndDateRange(
+        branchId,
+        startDate,
+        endDate,
+      );
+    } catch (error) {
+      throw new InternalServerErrorException(
+        'Failed to fetch events by date range',
+      );
     }
   }
 }

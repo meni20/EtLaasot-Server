@@ -23,4 +23,12 @@ export class CreateEventDto {
 
   @IsString()
   address: string;
+
+  @IsString()
+  @IsOptional()
+  eventType?: string;
+
+  @IsString()
+  @IsOptional()
+  branchId?: string;
 }
