@@ -1,5 +1,13 @@
 import AuthService from './auth.service';
-import { Body, Controller, Get, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  BadRequestException,
+  Body,
+  Controller,
+  Get,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 
 @Controller('auth')
@@ -7,7 +15,13 @@ export default class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  login(@Body('userId') userId: string) {
+  login(@Body() body: { userId?: string; identifyId?: string }) {
+    const userId = body.userId ?? body.identifyId;
+
+    if (!userId) {
+      throw new BadRequestException('userId is required');
+    }
+
     return this.authService.login(userId);
   }
 
