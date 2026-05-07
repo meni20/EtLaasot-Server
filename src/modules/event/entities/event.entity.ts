@@ -15,6 +15,7 @@ import { IEvent } from '../interfaces/event.interface';
 import User from 'src/modules/user/entities/user.entity';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
+import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 
 @Table({ tableName: 'event', paranoid: true, timestamps: true })
 export default class Event extends Model<IEvent> {
@@ -56,4 +57,7 @@ export default class Event extends Model<IEvent> {
 
   @BelongsToMany(() => User, () => Attendee)
   declare users: User[];
+
+  @HasMany(() => VolunteerActivity)
+  declare activities: VolunteerActivity[];
 }

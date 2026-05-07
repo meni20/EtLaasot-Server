@@ -15,6 +15,7 @@ import Event from 'src/modules/event/entities/event.entity';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
+import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 
 @Table({
   tableName: 'user',
@@ -60,4 +61,10 @@ export default class User extends Model<IUser> {
 
   @BelongsToMany(() => Event, () => Attendee)
   declare events: Event[];
+
+  @HasMany(() => VolunteerActivity, 'volunteerId')
+  declare volunteerActivities: VolunteerActivity[];
+
+  @HasMany(() => VolunteerActivity, 'traineeId')
+  declare traineeActivities: VolunteerActivity[];
 }

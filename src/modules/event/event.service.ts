@@ -24,6 +24,20 @@ export default class EventService {
     }
   }
 
+  public async updateEvent(id: string, eventData: IEvent) {
+  try {
+    const payload = {
+      ...eventData,
+      startDate: new Date(eventData.startDate),
+      endDate: new Date(eventData.endDate),
+    };
+
+    return await this.eventRepository.updateEvent(id, payload);
+  } catch (error) {
+    throw new InternalServerErrorException('Failed to update event');
+  }
+}
+
   public async findAllEvents(branchId?: string) {
     try {
       return await this.eventRepository.findAll(branchId);
@@ -75,6 +89,14 @@ export default class EventService {
       throw new InternalServerErrorException(
         'Failed to fetch events by date range',
       );
+    }
+  }
+
+  public async findById(id: string) {
+    try {
+      return await this.eventRepository.findById(id);
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch event');
     }
   }
 }
