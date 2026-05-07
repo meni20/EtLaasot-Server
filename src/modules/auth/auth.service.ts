@@ -1,4 +1,3 @@
-import axios from 'axios';
 import { JwtService } from '@nestjs/jwt';
 import UserService from '../user/user.service';
 import BranchService from '../branch/branch.service';
@@ -15,34 +14,7 @@ export default class AuthService {
     private jwt: JwtService,
   ) {}
 
-  private async verifyRecaptcha(captchaToken: string): Promise<boolean> {
-  const secretKey = process.env.RECAPTCHA_SECRET_KEY;
-
-  if (!secretKey) {
-    throw new Error('Missing RECAPTCHA_SECRET_KEY');
-  }
-
-
-  const response = await axios.post(
-    'https://www.google.com/recaptcha/api/siteverify',
-    null,
-    {
-      params: {
-        secret: secretKey,
-        response: captchaToken,
-      },
-    },
-  );
-
-  return response.data.success === true;
-}
-
-  async login(userId: string, captchaToken: string) {
-    const isHuman = await this.verifyRecaptcha(captchaToken);
-
-if (!isHuman) {
-  throw new UnauthorizedException('Captcha verification failed');
-}
+  async login(userId: string) {
     const rows = await this.userRoleService.findRolesByUserId(userId);
 
     if (!rows.length) {

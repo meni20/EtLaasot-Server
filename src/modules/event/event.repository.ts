@@ -1,15 +1,26 @@
 import { Op, Transaction } from 'sequelize';
 import { Injectable } from '@nestjs/common';
 import Event from './entities/event.entity';
+import User from '../user/entities/user.entity';
 import { IEvent } from './interfaces/event.interface';
 import Attendee from '../attendee/entities/attendee.entity';
-import User from '../user/entities/user.entity';
 
 @Injectable()
 export default class EventRepository {
   public async create(eventDate: IEvent, transaction?: Transaction) {
     return await Event.create(eventDate, { transaction });
   }
+
+  public async updateEvent(id: string, eventData: Partial<IEvent>) {
+  const event = await Event.findByPk(id);
+
+  if (!event) {
+    return null;
+  }
+
+  await event.update(eventData);
+  return event;
+}
 
   public async findAll(branchId?: string): Promise<Event[]> {
     const where: any = {};

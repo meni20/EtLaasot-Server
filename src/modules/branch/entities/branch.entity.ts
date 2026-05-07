@@ -8,6 +8,7 @@ import {
 } from 'sequelize-typescript';
 import User from 'src/modules/user/entities/user.entity';
 import Event from 'src/modules/event/entities/event.entity';
+import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 
 @Table({
   tableName: 'branch',
@@ -42,4 +43,7 @@ export default class Branch extends Model {
 
   @HasMany(() => Event)
   declare events: Event[];
+
+  @HasMany(() => VolunteerActivity)
+  declare activities: VolunteerActivity[];
 }
