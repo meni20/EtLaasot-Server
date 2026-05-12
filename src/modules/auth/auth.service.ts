@@ -22,8 +22,10 @@ export default class AuthService {
     }
 
     // Get branch info for each role
-    const branches = await this.branchService.getAllBranches();
-    const branchMap = new Map(branches.map((b) => [b.id, b]));
+    const branches = (await this.branchService.getAllBranches()).filter(
+      (branch): branch is NonNullable<typeof branch> => !!branch,
+    );
+    const branchMap = new Map(branches.map((branch) => [branch.id, branch]));
 
     const roles = rows.map((r) => ({
       role: ROLE_ID_TO_NAME[r.roleId] || 'UNKNOWN',
@@ -55,7 +57,12 @@ export default class AuthService {
       this.userService.findById(userId),
       this.branchService.getAllBranches(),
     ]);
-    const branchMap = new Map(branches.map((b) => [b.id, b]));
+    const resolvedBranches = branches.filter(
+      (branch): branch is NonNullable<typeof branch> => !!branch,
+    );
+    const branchMap = new Map(
+      resolvedBranches.map((branch) => [branch.id, branch]),
+    );
 
     const roles = rows.map((r) => ({
       role: ROLE_ID_TO_NAME[r.roleId] || 'UNKNOWN',

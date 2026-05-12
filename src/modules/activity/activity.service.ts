@@ -19,6 +19,7 @@ import {
   ACTIVITY_TIMEZONE,
   VolunteerActivityStatus,
 } from './activity.constants';
+import { applyBranchDisplay } from 'src/constants/auth.constants';
 import {
   calculateDurationMinutes,
   formatDurationMinutes,
@@ -260,6 +261,7 @@ export default class ActivityService {
   }
 
   private toActivityResponse(activity: VolunteerActivity) {
+    const branch = applyBranchDisplay(activity.branch);
     const durationMinutes = calculateDurationMinutes(
       activity.startTime,
       activity.endTime,
@@ -283,7 +285,7 @@ export default class ActivityService {
       volunteer: activity.volunteer,
       trainee: activity.trainee,
       event: activity.event,
-      branch: activity.branch,
+      branch,
     };
   }
 
@@ -355,4 +357,3 @@ export default class ActivityService {
     return authUser.roles?.find((role) => role.branchId)?.branchId;
   }
 }
-

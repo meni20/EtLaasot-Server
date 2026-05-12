@@ -64,9 +64,14 @@ export default class EventRepository {
   }
 
   public async getUpcomingByBranch(branchId: string, limit: number) {
+    const now = new Date();
+
     return Event.findAll({
-      where: { branchId },
-      order: [['start_date', 'DESC']],
+      where: {
+        branchId,
+        startDate: { [Op.gte]: now },
+      },
+      order: [['start_date', 'ASC']],
       limit,
       include: [{ model: Attendee }],
     });
