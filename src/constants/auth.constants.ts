@@ -19,19 +19,59 @@ export const AUTH_ROLES = {
 
 export const BRANCHES = {
   BAT_YAM: { id: 'branch-bat-yam', name: 'סניף בת ים', city: 'בת ים' },
-  TEL_AVIV: { id: 'branch-tel-aviv', name: 'סניף תל אביב', city: 'תל אביב' },
-  JERUSALEM: { id: 'branch-jerusalem', name: 'סניף ירושלים', city: 'ירושלים' },
-  HAIFA: { id: 'branch-haifa', name: 'סניף חיפה', city: 'חיפה' },
+  TEL_AVIV: { id: 'branch-tel-aviv', name: 'סניף נתניה', city: 'נתניה' },
+  JERUSALEM: {
+    id: 'branch-jerusalem',
+    name: 'סניף צור הדסה',
+    city: 'צור הדסה',
+  },
+  HAIFA: { id: 'branch-haifa', name: 'סניף בית שמש', city: 'בית שמש' },
   BEER_SHEVA: {
     id: 'branch-beer-sheva',
-    name: 'סניף באר שבע',
-    city: 'באר שבע',
+    name: 'סניף חריש',
+    city: 'חריש',
   },
 };
+
+export const BRANCH_DISPLAY_BY_ID = Object.fromEntries(
+  Object.values(BRANCHES).map((branch) => [
+    branch.id,
+    { name: branch.name, city: branch.city },
+  ]),
+);
+
+export function applyBranchDisplay<T extends { id: string; name?: string; city?: string }>(
+  branch: T | null | undefined,
+) {
+  if (!branch) {
+    return branch;
+  }
+
+  const display = BRANCH_DISPLAY_BY_ID[branch.id];
+
+  if (!display) {
+    return branch;
+  }
+
+  if (typeof (branch as any).setDataValue === 'function') {
+    (branch as any).setDataValue('name', display.name);
+    if ('city' in branch) {
+      (branch as any).setDataValue('city', display.city);
+    }
+  } else {
+    branch.name = display.name;
+    if ('city' in branch) {
+      branch.city = display.city;
+    }
+  }
+
+  return branch;
+}
 
 export const EVENT_TYPES = {
   SHABBAT: { id: 'shabbat', name: 'שבת', icon: '🕯️' },
   CAMP: { id: 'camp', name: 'מחנה', icon: '⛺' },
+  PLAYROOM: { id: 'playroom', name: 'משחקייה', icon: '🧸' },
   TRIP: { id: 'trip', name: 'טיול', icon: '🥾' },
   MEETING: { id: 'meeting', name: 'פגישה', icon: '🤝' },
   HOLIDAY: { id: 'holiday', name: 'חג', icon: '🎉' },
@@ -39,11 +79,12 @@ export const EVENT_TYPES = {
   GENERAL: { id: 'general', name: 'כללי', icon: '📌' },
 };
 
+export const EVENT_TYPE_IDS = Object.values(EVENT_TYPES).map((type) => type.id);
+
 export const ROLE_ID_TO_NAME: Record<number, string> = Object.fromEntries(
-  Object.entries(AUTH_ROLES).map(([key, r]) => [r.id, key]),
+  Object.entries(AUTH_ROLES).map(([key, role]) => [role.id, key]),
 );
 
-// Keep backward compatibility
 export const RESOURCE_TYPES = {
   BAT_YAM: {
     id: 1,
@@ -52,5 +93,5 @@ export const RESOURCE_TYPES = {
 };
 
 export const RESOURCE_ID_TO_NAME = Object.fromEntries(
-  Object.values(RESOURCE_TYPES).map((r) => [r.id, r.name]),
+  Object.values(RESOURCE_TYPES).map((resource) => [resource.id, resource.name]),
 );

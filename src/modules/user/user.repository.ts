@@ -26,6 +26,7 @@ export default class UserRepository {
           required: false,
         },
       ],
+      limit: 500,
     });
   }
 
@@ -42,6 +43,7 @@ export default class UserRepository {
           attributes: [],
         },
       ],
+      limit: 500,
     });
   }
 
@@ -58,6 +60,7 @@ export default class UserRepository {
           attributes: [],
         },
       ],
+      limit: 500,
     });
   }
 
@@ -84,5 +87,22 @@ export default class UserRepository {
     return await User.findByPk(id, {
       include: [UserRole],
     });
+  }
+
+  public async updateProfile(
+    id: string,
+    data: {
+      email?: string | null;
+      phoneNumber?: string;
+      address?: string | null;
+    },
+  ) {
+    const user = await User.findByPk(id);
+
+    if (!user) {
+      return null;
+    }
+
+    return await user.update(data);
   }
 }

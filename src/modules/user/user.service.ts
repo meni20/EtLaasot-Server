@@ -1,9 +1,14 @@
 import UserRepository from './user.repository';
 import { IUser } from './interfaces/user.interface';
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
+import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
 
 @Injectable()
 export default class UserService {
@@ -22,7 +27,7 @@ export default class UserService {
         AUTH_ROLES.VOLUNTEER.id,
         user.name,
         transaction,
-        userData.branchId,
+        userData.branchId ?? undefined,
       );
 
       return user;
@@ -37,7 +42,7 @@ export default class UserService {
         AUTH_ROLES.TRAINEE.id,
         user.name,
         transaction,
-        userData.branchId,
+        userData.branchId ?? undefined,
       );
       return user;
     });
@@ -81,5 +86,88 @@ export default class UserService {
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
+  }
+
+  public async getCurrentUserProfile(userId: string) {
+    try {
+      const user = await this.userRepository.findById(userId);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      return this.toSafeProfileDto(user);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public async updateCurrentUserProfile(
+    userId: string,
+    data: {
+      email?: string | null;
+      phoneNumber?: string;
+      address?: string | null;
+    },
+  ) {
+    try {
+      const updateData: {
+        email?: string | null;
+        phoneNumber?: string;
+        address?: string | null;
+      } = {};
+
+      if (Object.prototype.hasOwnProperty.call(data, 'email')) {
+        updateData.email =
+          data.email === undefined || data.email === null
+            ? null
+            : data.email.trim() || null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, 'phoneNumber')) {
+        updateData.phoneNumber = data.phoneNumber?.trim();
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, 'address')) {
+        updateData.address =
+          data.address === undefined || data.address === null
+            ? null
+            : data.address.trim() || null;
+      }
+
+      const user = await this.userRepository.updateProfile(userId, updateData);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      return this.toSafeProfileDto(user);
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  private toSafeProfileDto(user: any): CurrentUserProfileDto {
+    const plain = typeof user.toJSON === 'function' ? user.toJSON() : user;
+
+    return {
+      id: plain.id,
+      name: plain.name,
+      phoneNumber: plain.phoneNumber ?? null,
+      email: plain.email ?? null,
+      address: plain.address ?? null,
+      age: plain.age ?? null,
+      branchId: plain.branchId ?? null,
+      createdAt: plain.createdAt,
+      updatedAt: plain.updatedAt,
+    };
   }
 }

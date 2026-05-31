@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -73,5 +74,25 @@ export default class ActivityController {
   ) {
     return this.activityService.getAdminActivityById(req.user, activityId);
   }
-}
 
+  @Get('event/:eventId/attendance')
+  public getEventAttendance(
+    @Req() req: any,
+    @Param('eventId') eventId: string,
+  ) {
+    return this.activityService.getEventAttendance(req.user, eventId);
+  }
+
+  @Delete('event/:eventId/attendance/:volunteerId')
+  public removeEventAttendance(
+    @Req() req: any,
+    @Param('eventId') eventId: string,
+    @Param('volunteerId') volunteerId: string,
+  ) {
+    return this.activityService.removeEventAttendance(
+      req.user,
+      eventId,
+      volunteerId,
+    );
+  }
+}

@@ -47,6 +47,7 @@ export default class EventRepository {
         },
       ],
       order: [['start_date', 'DESC']],
+      limit: 500,
     });
   }
 
@@ -64,9 +65,14 @@ export default class EventRepository {
   }
 
   public async getUpcomingByBranch(branchId: string, limit: number) {
+    const now = new Date();
+
     return Event.findAll({
-      where: { branchId },
-      order: [['start_date', 'DESC']],
+      where: {
+        branchId,
+        startDate: { [Op.gte]: now },
+      },
+      order: [['start_date', 'ASC']],
       limit,
       include: [{ model: Attendee }],
     });
@@ -84,6 +90,7 @@ export default class EventRepository {
       },
       include: [{ model: Attendee, include: [{ model: User }] }],
       order: [['start_date', 'ASC']],
+      limit: 1000,
     });
   }
 }

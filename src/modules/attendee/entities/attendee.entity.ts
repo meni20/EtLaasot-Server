@@ -8,16 +8,23 @@ import {
   BelongsTo,
   PrimaryKey,
   Default,
-  Unique,
 } from 'sequelize-typescript';
 import User from 'src/modules/user/entities/user.entity';
 import Event from 'src/modules/event/entities/event.entity';
+import { AttendeeRsvpStatus } from '../attendee.constants';
 
 @Table({
   tableName: 'attendee',
   paranoid: true,
   timestamps: true,
-  indexes: [{ unique: true, fields: ['userId', 'eventId'] }],
+  indexes: [
+    {
+      name: 'attendee_event_user_active_unique',
+      unique: true,
+      fields: ['eventId', 'userId'],
+      where: { deletedAt: null },
+    },
+  ],
 })
 export default class Attendee extends Model {
   @PrimaryKey
@@ -33,8 +40,11 @@ export default class Attendee extends Model {
   @Column(DataType.STRING)
   declare userId: string;
 
-  @Column({ type: DataType.STRING(20), defaultValue: 'pending' })
-  declare rsvpStatus: string; // pending | confirmed | declined
+  @Column({
+    type: DataType.ENUM(...Object.values(AttendeeRsvpStatus)),
+    defaultValue: AttendeeRsvpStatus.PENDING,
+  })
+  declare rsvpStatus: AttendeeRsvpStatus;
 
   @AllowNull
   @Column(DataType.DATE)

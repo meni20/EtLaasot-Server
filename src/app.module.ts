@@ -10,31 +10,24 @@ import { BranchModule } from './modules/branch/branch.module';
 import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assignment.module';
 import { ActivityModule } from './modules/activity/activity.module';
 import Role from './modules/roles/enitites/roles.entity';
+import { AuthorizationModule } from './modules/auth/authorization.module';
+import {
+  getBooleanEnv,
+  getPortEnv,
+  getRequiredEnv,
+} from './config/env.util';
 
-const getRequiredEnv = (key: string): string => {
-  const value = process.env[key]?.trim();
-
-  if (!value) {
-    throw new Error(`Missing required environment variable: ${key}`);
+const getDbDialectOptions = () => {
+  if (!getBooleanEnv('DB_SSL', true)) {
+    return undefined;
   }
 
-  return value;
-};
-
-const getPortEnv = (key: string, fallback: number): number => {
-  const rawValue = process.env[key]?.trim();
-
-  if (!rawValue) {
-    return fallback;
-  }
-
-  const parsedValue = Number(rawValue);
-
-  if (!Number.isInteger(parsedValue) || parsedValue <= 0) {
-    throw new Error(`Invalid port in environment variable ${key}: ${rawValue}`);
-  }
-
-  return parsedValue;
+  return {
+    ssl: {
+      require: true,
+      rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
+    },
+  };
 };
 
 @Module({
@@ -49,20 +42,16 @@ const getPortEnv = (key: string, fallback: number): number => {
       password: getRequiredEnv('DB_PASS'),
       database: getRequiredEnv('DB_NAME'),
 
-      ssl: true,
-      dialectOptions: {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        },
-      },
+      ssl: getBooleanEnv('DB_SSL', true),
+      dialectOptions: getDbDialectOptions(),
 
       autoLoadModels: true,
-      sync: { alter: true },
+      sync: getBooleanEnv('DB_SYNC', false) ? { alter: false } : undefined,
     }),
 
     SequelizeModule.forFeature([Role]),
 
+    AuthorizationModule,
     UserModule,
     AuthModule,
     EventModule,

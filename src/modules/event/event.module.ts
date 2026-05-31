@@ -6,10 +6,11 @@ import EventRepository from './event.repository';
 import EventController from './event.controller';
 import { AttendeeModule } from '../attendee/attendee.module';
 import Attendee from '../attendee/entities/attendee.entity';
+import EventPairing from '../attendee/entities/event-pairing.entity';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([Event, Attendee]),
+    SequelizeModule.forFeature([Event, Attendee, EventPairing]),
     forwardRef(() => AttendeeModule),
   ],
   providers: [EventService, EventRepository],

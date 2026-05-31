@@ -1,13 +1,16 @@
 import {
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
 import MentorAssignmentRepository from './mentor-assignment.repository';
+import { Sequelize } from 'sequelize-typescript';
 
 @Injectable()
 export default class MentorAssignmentService {
   constructor(
+    private readonly sequelize: Sequelize,
     private readonly mentorAssignmentRepository: MentorAssignmentRepository,
   ) {}
 
@@ -17,12 +20,29 @@ export default class MentorAssignmentService {
     branchId: string,
   ) {
     try {
-      return await this.mentorAssignmentRepository.create({
-        mentorId,
-        traineeId,
-        branchId,
+      return await this.sequelize.transaction(async (transaction) => {
+        const existing =
+          await this.mentorAssignmentRepository.findActiveByTrainee(
+            traineeId,
+            branchId,
+            transaction,
+          );
+
+        if (existing) {
+          throw new ConflictException('Trainee already has an active mentor');
+        }
+
+        return await this.mentorAssignmentRepository.create(
+          {
+            mentorId,
+            traineeId,
+            branchId,
+          },
+          transaction,
+        );
       });
-    } catch {
+    } catch (error) {
+      if (error instanceof ConflictException) throw error;
       throw new InternalServerErrorException('Failed to create assignment');
     }
   }
@@ -52,17 +72,28 @@ export default class MentorAssignmentService {
   }
 
   public async transferTrainee(assignmentId: string, newMentorId: string) {
-    const old = await this.mentorAssignmentRepository.findById(assignmentId);
-    if (!old) {
-      throw new NotFoundException(`Assignment ${assignmentId} not found`);
-    }
+    return await this.sequelize.transaction(async (transaction) => {
+      const old = await this.mentorAssignmentRepository.findById(
+        assignmentId,
+        transaction,
+      );
+      if (!old) {
+        throw new NotFoundException(`Assignment ${assignmentId} not found`);
+      }
 
-    await this.mentorAssignmentRepository.deactivate(assignmentId);
+      await this.mentorAssignmentRepository.deactivate(
+        assignmentId,
+        transaction,
+      );
 
-    return await this.mentorAssignmentRepository.create({
-      mentorId: newMentorId,
-      traineeId: old.traineeId,
-      branchId: old.branchId,
+      return await this.mentorAssignmentRepository.create(
+        {
+          mentorId: newMentorId,
+          traineeId: old.traineeId,
+          branchId: old.branchId,
+        },
+        transaction,
+      );
     });
   }
 

@@ -59,6 +59,7 @@ export default class ActivityRepository {
       },
       include: this.relations,
       order: [['startTime', 'DESC']],
+      limit: 2000,
     });
   }
 
@@ -118,7 +119,39 @@ export default class ActivityRepository {
       where,
       include: this.relations,
       order: [['startTime', 'DESC'], ['createdAt', 'DESC']],
+      limit: 1000,
+    });
+  }
+
+  public async findAttendanceByEvent(eventId: string) {
+    return VolunteerActivity.findAll({
+      where: {
+        eventId,
+        status: {
+          [Op.in]: [
+            VolunteerActivityStatus.ACTIVE,
+            VolunteerActivityStatus.COMPLETED,
+          ],
+        },
+      },
+      include: [
+        {
+          model: User,
+          as: 'volunteer',
+          attributes: ['id', 'name', 'branchId'],
+        },
+      ],
+      order: [['startTime', 'DESC'], ['createdAt', 'DESC']],
+      limit: 1000,
+    });
+  }
+
+  public async removeVolunteerAttendanceForEvent(
+    eventId: string,
+    volunteerId: string,
+  ) {
+    return VolunteerActivity.destroy({
+      where: { eventId, volunteerId },
     });
   }
 }
-
