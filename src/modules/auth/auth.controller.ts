@@ -74,6 +74,7 @@ export default class AuthController {
     });
 
     return {
+      token: result.token,
       roles: result.roles,
       activeBranch: result.activeBranch,
     };
