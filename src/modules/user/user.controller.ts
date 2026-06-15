@@ -15,6 +15,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthorizationService } from '../auth/authorization.service';
 import { UpdateCurrentUserProfileDto } from './dtos/current-user-profile.dto';
+import { UpdateUserDto } from './dtos/update-user.dto';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
@@ -98,6 +99,16 @@ export default class UserController {
   public getAll(@Query('branchId') branchId: string, @Req() req: any) {
     this.authorizationService.assertAdminForRequestedBranch(req.user, branchId);
     return this.userService.getAllUsers(branchId);
+  }
+
+  @Patch(':userId')
+  public async updateUser(
+    @Param('userId') userId: string,
+    @Body() userData: UpdateUserDto,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForUser(req.user, userId);
+    return this.userService.updateUserDetails(userId, userData);
   }
 
   @Get(':userId')

@@ -10,7 +10,7 @@ import {
   BelongsTo,
   BelongsToMany,
 } from 'sequelize-typescript';
-import { IUser } from '../interfaces/user.interface';
+import { IUser, UserGender } from '../interfaces/user.interface';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import Event from 'src/modules/event/entities/event.entity';
 import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
@@ -33,6 +33,10 @@ export default class User extends Model<IUser> {
 
   @Column({ field: 'phone_number', type: DataType.STRING })
   declare phoneNumber: string;
+
+  @AllowNull
+  @Column(DataType.STRING)
+  declare gender: UserGender | null;
 
   @AllowNull
   @Column(DataType.STRING)

@@ -1,7 +1,7 @@
 import { Transaction } from 'sequelize';
 import User from './entities/user.entity';
 import { Injectable } from '@nestjs/common';
-import { IUser } from './interfaces/user.interface';
+import { IUser, UserGender } from './interfaces/user.interface';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import UserRole from '../user-role/enitites/user-role.entity';
 import Event from '../event/entities/event.entity';
@@ -94,6 +94,26 @@ export default class UserRepository {
     data: {
       email?: string | null;
       phoneNumber?: string;
+      address?: string | null;
+    },
+  ) {
+    const user = await User.findByPk(id);
+
+    if (!user) {
+      return null;
+    }
+
+    return await user.update(data);
+  }
+
+  public async updateUserDetails(
+    id: string,
+    data: {
+      name: string;
+      age?: number | null;
+      gender?: UserGender | null;
+      phoneNumber: string;
+      email?: string | null;
       address?: string | null;
     },
   ) {

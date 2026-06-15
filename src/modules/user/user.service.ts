@@ -1,5 +1,5 @@
 import UserRepository from './user.repository';
-import { IUser } from './interfaces/user.interface';
+import { IUser, UserGender } from './interfaces/user.interface';
 import {
   Injectable,
   InternalServerErrorException,
@@ -20,7 +20,10 @@ export default class UserService {
 
   async createUserWithRole(userData: IUser) {
     return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(userData, transaction);
+      const user = await this.userRepository.create(
+        this.normalizeCreateUserData(userData),
+        transaction,
+      );
 
       await this.userRoleService.asignRoleToUser(
         user.id,
@@ -36,7 +39,10 @@ export default class UserService {
 
   async createTraineeWithRole(userData: IUser) {
     return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(userData, transaction);
+      const user = await this.userRepository.create(
+        this.normalizeCreateUserData(userData),
+        transaction,
+      );
       await this.userRoleService.asignRoleToUser(
         user.id,
         AUTH_ROLES.TRAINEE.id,
@@ -46,6 +52,13 @@ export default class UserService {
       );
       return user;
     });
+  }
+
+  private normalizeCreateUserData(userData: IUser): IUser {
+    return {
+      ...userData,
+      email: userData.email?.trim() || null,
+    };
   }
 
   public getAllUsers(branchId?: string) {
@@ -155,6 +168,52 @@ export default class UserService {
     }
   }
 
+  public async updateUserDetails(
+    userId: string,
+    data: {
+      name: string;
+      age?: number | null;
+      gender?: UserGender | null;
+      phoneNumber: string;
+      email?: string | null;
+      address?: string | null;
+    },
+  ) {
+    try {
+      const updateData = {
+        name: data.name.trim(),
+        age: data.age ?? null,
+        gender: data.gender ?? null,
+        phoneNumber: data.phoneNumber.trim(),
+        email:
+          data.email === undefined || data.email === null
+            ? null
+            : data.email.trim() || null,
+        address:
+          data.address === undefined || data.address === null
+            ? null
+            : data.address.trim() || null,
+      };
+
+      const user = await this.userRepository.updateUserDetails(
+        userId,
+        updateData,
+      );
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      return user;
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException(err);
+    }
+  }
+
   private toSafeProfileDto(user: any): CurrentUserProfileDto {
     const plain = typeof user.toJSON === 'function' ? user.toJSON() : user;
 
@@ -162,6 +221,7 @@ export default class UserService {
       id: plain.id,
       name: plain.name,
       phoneNumber: plain.phoneNumber ?? null,
+      gender: plain.gender ?? null,
       email: plain.email ?? null,
       address: plain.address ?? null,
       age: plain.age ?? null,

@@ -21,6 +21,7 @@ export type CurrentUserProfileDto = {
   id: string;
   name: string;
   phoneNumber?: string | null;
+  gender?: 'male' | 'female' | null;
   email?: string | null;
   address?: string | null;
   age?: number | null;

@@ -1,4 +1,12 @@
-import { IsNotEmpty, IsNumber, IsOptional, IsString } from 'class-validator';
+import { Transform } from 'class-transformer';
+import {
+  IsEmail,
+  IsIn,
+  IsNotEmpty,
+  IsNumber,
+  IsOptional,
+  IsString,
+} from 'class-validator';
 
 export class UserDto {
   @IsNotEmpty()
@@ -11,11 +19,16 @@ export class UserDto {
   @IsString()
   phoneNumber: string;
 
+  @IsIn(['male', 'female'])
+  gender: 'male' | 'female';
+
   @IsString()
   address: string;
 
-  @IsString()
-  email: string;
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsEmail()
+  email?: string | null;
 
   @IsNumber()
   age: number;
