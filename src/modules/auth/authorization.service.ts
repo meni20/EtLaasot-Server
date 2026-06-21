@@ -148,7 +148,38 @@ export class AuthorizationService {
     }
 
     const branchIds = await this.getUserBranchIds(targetUserId);
-    const hasAdminAccess = branchIds.some((branchId) =>
+    const hasAdminAccess = Array.from(branchIds).some((branchId) =>
+      this.hasAdminAccess(user, branchId),
+    );
+
+    if (!hasAdminAccess) {
+      throw new ForbiddenException('User access denied');
+    }
+  }
+
+  async assertAdminForUser(user: AuthUser, targetUserId: string) {
+    if (this.isSuperAdmin(user)) {
+      return;
+    }
+
+    const targetUser = await User.findByPk(targetUserId, {
+      include: [{ model: UserRole }],
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (
+      targetUser.userRoles?.some(
+        (role) => role.roleId === AUTH_ROLES.SUPER_ADMIN.id,
+      )
+    ) {
+      throw new ForbiddenException('User access denied');
+    }
+
+    const branchIds = this.getBranchIdsFromUser(targetUser);
+    const hasAdminAccess = Array.from(branchIds).some((branchId) =>
       this.hasAdminAccess(user, branchId),
     );
 
@@ -225,6 +256,16 @@ export class AuthorizationService {
       throw new NotFoundException('User not found');
     }
 
+    const branchIds = this.getBranchIdsFromUser(user);
+
+    if (branchIds.size === 0) {
+      throw new ForbiddenException('User has no branch access');
+    }
+
+    return Array.from(branchIds);
+  }
+
+  private getBranchIdsFromUser(user: User) {
     const branchIds = new Set<string>();
     if (user.branchId) {
       branchIds.add(user.branchId);
@@ -236,11 +277,7 @@ export class AuthorizationService {
       }
     });
 
-    if (branchIds.size === 0) {
-      throw new ForbiddenException('User has no branch access');
-    }
-
-    return Array.from(branchIds);
+    return branchIds;
   }
 
   private assertBranchId(branchId?: string | null) {

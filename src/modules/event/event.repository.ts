@@ -41,6 +41,7 @@ export default class EventRepository {
                 'phoneNumber',
                 'address',
                 'age',
+                'dateOfBirth',
               ],
             },
           ],

@@ -38,7 +38,7 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age'],
+          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
         },
       ],
     });
@@ -51,7 +51,7 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age'],
+          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
         },
       ],
     });

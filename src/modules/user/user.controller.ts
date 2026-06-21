@@ -15,6 +15,7 @@ import {
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthorizationService } from '../auth/authorization.service';
 import { UpdateCurrentUserProfileDto } from './dtos/current-user-profile.dto';
+import { UpdateUserDto } from './dtos/update-user.dto';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
@@ -91,7 +92,10 @@ export default class UserController {
       this.authorizationService.assertSuperAdmin(req.user);
     }
 
-    return this.userService.getAllTrainees(branchId);
+    const includeNotes = branchId
+      ? this.authorizationService.hasAdminAccess(req.user, branchId)
+      : true;
+    return this.userService.getAllTrainees(branchId, includeNotes);
   }
 
   @Get('get-all')
@@ -100,9 +104,20 @@ export default class UserController {
     return this.userService.getAllUsers(branchId);
   }
 
+  @Patch(':userId')
+  public async updateUser(
+    @Param('userId') userId: string,
+    @Body() userData: UpdateUserDto,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForUser(req.user, userId);
+    return this.userService.updateUserDetails(userId, userData);
+  }
+
   @Get(':userId')
   public async getUser(@Param('userId') userId: string, @Req() req: any) {
     await this.authorizationService.assertSelfOrAdminForUser(req.user, userId);
-    return this.userService.findById(userId);
+    const includeNotes = userId !== this.authorizationService.getActorId(req.user);
+    return this.userService.findById(userId, includeNotes);
   }
 }
