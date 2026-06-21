@@ -7,6 +7,8 @@ import { BranchModule } from '../branch/branch.module';
 import AuthController from './auth.controller';
 import AuthService from './auth.service';
 import { JwtStrategy } from './jwt.strategy';
+import { getRequiredEnv } from 'src/config/env.util';
+import { ConfigModule } from '@nestjs/config';
 
 @Module({
   imports: [
@@ -14,9 +16,12 @@ import { JwtStrategy } from './jwt.strategy';
     UserRoleModule,
     UserModule,
     BranchModule,
-    JwtModule.register({
-      secret: process.env.JWT_SECRET || 'dev-secret',
-      signOptions: { expiresIn: '7d' },
+    JwtModule.registerAsync({
+      imports: [ConfigModule],
+      useFactory: () => ({
+        secret: getRequiredEnv('JWT_SECRET'),
+        signOptions: { expiresIn: '7d' },
+      }),
     }),
   ],
   providers: [AuthService, JwtStrategy],

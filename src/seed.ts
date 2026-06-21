@@ -22,7 +22,7 @@ async function seed() {
 
   // 2. Seed branches
   for (const branch of Object.values(BRANCHES)) {
-    await Branch.findOrCreate({
+    const [branchRow] = await Branch.findOrCreate({
       where: { id: branch.id },
       defaults: {
         id: branch.id,
@@ -30,6 +30,14 @@ async function seed() {
         city: branch.city,
       } as any,
     });
+
+    if (branchRow.name !== branch.name || branchRow.city !== branch.city) {
+      await branchRow.update({
+        name: branch.name,
+        city: branch.city,
+      });
+    }
+
     console.log(`  ✅ Branch: ${branch.name}`);
   }
 

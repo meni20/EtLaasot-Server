@@ -10,11 +10,13 @@ import {
   BelongsTo,
   BelongsToMany,
 } from 'sequelize-typescript';
-import { IUser } from '../interfaces/user.interface';
-import Event from 'src/modules/event/entities/event.entity';
+import { IUser, ShirtSize, UserGender } from '../interfaces/user.interface';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
+import Event from 'src/modules/event/entities/event.entity';
+import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
+import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 
 @Table({
   tableName: 'user',
@@ -34,6 +36,10 @@ export default class User extends Model<IUser> {
 
   @AllowNull
   @Column(DataType.STRING)
+  declare gender: UserGender | null;
+
+  @AllowNull
+  @Column(DataType.STRING)
   declare address: string;
 
   @AllowNull
@@ -43,6 +49,26 @@ export default class User extends Model<IUser> {
   @AllowNull
   @Column(DataType.INTEGER)
   declare age: number;
+
+  @AllowNull
+  @Column({ field: 'date_of_birth', type: DataType.DATEONLY })
+  declare dateOfBirth: string | null;
+
+  @AllowNull
+  @Column({ field: 'shirt_size', type: DataType.STRING(10) })
+  declare shirtSize: ShirtSize | null;
+
+  @AllowNull
+  @Column({ field: 'custom_shirt_size', type: DataType.STRING(50) })
+  declare customShirtSize: string | null;
+
+  @AllowNull
+  @Column(DataType.TEXT)
+  declare notes: string | null;
+
+  @AllowNull
+  @Column({ field: 'parent_name', type: DataType.STRING(100) })
+  declare parentName: string | null;
 
   @ForeignKey(() => Branch)
   @AllowNull
@@ -60,4 +86,16 @@ export default class User extends Model<IUser> {
 
   @BelongsToMany(() => Event, () => Attendee)
   declare events: Event[];
+
+  @HasMany(() => EventPairing, 'mentorId')
+  declare eventMentorPairings: EventPairing[];
+
+  @HasMany(() => EventPairing, 'traineeId')
+  declare eventTraineePairings: EventPairing[];
+
+  @HasMany(() => VolunteerActivity, 'volunteerId')
+  declare volunteerActivities: VolunteerActivity[];
+
+  @HasMany(() => VolunteerActivity, 'traineeId')
+  declare traineeActivities: VolunteerActivity[];
 }

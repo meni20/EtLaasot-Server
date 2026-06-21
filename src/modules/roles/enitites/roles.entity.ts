@@ -3,14 +3,10 @@ import {
   Table,
   Column,
   DataType,
-  AllowNull,
   PrimaryKey,
-  BelongsTo,
-  BelongsToMany,
-  Default,
+  HasMany,
 } from 'sequelize-typescript';
 import { IRole } from '../interfaces/roles.interface';
-import User from 'src/modules/user/entities/user.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 
 @Table({
@@ -26,6 +22,6 @@ export default class Role extends Model<IRole> {
   @Column(DataType.STRING)
   declare name: string;
 
-  @BelongsToMany(() => User, () => UserRole)
-  declare users: User[];
+  @HasMany(() => UserRole)
+  declare userRoles: UserRole[];
 }

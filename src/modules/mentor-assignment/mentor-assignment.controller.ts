@@ -15,12 +15,15 @@ import {
   TransferTraineeDto,
 } from './dtos/mentor-assignment.dto';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
+import { AuthorizationService } from '../auth/authorization.service';
+import { AUTH_ROLES } from 'src/constants/auth.constants';
 
 @Controller('mentor-assignment')
 @UseGuards(JwtAuthGuard)
 export default class MentorAssignmentController {
   constructor(
     private readonly mentorAssignmentService: MentorAssignmentService,
+    private readonly authorizationService: AuthorizationService,
   ) {}
 
   @Get('my-trainees')
@@ -29,17 +32,39 @@ export default class MentorAssignmentController {
   }
 
   @Get(':branchId')
-  getAssignments(@Param('branchId') branchId: string) {
+  getAssignments(@Param('branchId') branchId: string, @Req() req: any) {
+    this.authorizationService.assertAdminForBranch(req.user, branchId);
     return this.mentorAssignmentService.getAssignmentsByBranch(branchId);
   }
 
   @Get(':branchId/unassigned')
-  getUnassignedTrainees(@Param('branchId') branchId: string) {
+  getUnassignedTrainees(@Param('branchId') branchId: string, @Req() req: any) {
+    this.authorizationService.assertAdminForBranch(req.user, branchId);
     return this.mentorAssignmentService.getUnassignedTrainees(branchId);
   }
 
   @Post('assign')
-  assignTrainee(@Body() dto: CreateMentorAssignmentDto) {
+  async assignTrainee(@Body() dto: CreateMentorAssignmentDto, @Req() req: any) {
+    this.authorizationService.assertAdminForBranch(req.user, dto.branchId);
+    await Promise.all([
+      this.authorizationService.assertUserBelongsToBranch(
+        dto.mentorId,
+        dto.branchId,
+      ),
+      this.authorizationService.assertUserBelongsToBranch(
+        dto.traineeId,
+        dto.branchId,
+      ),
+      this.authorizationService.assertUserHasRole(
+        dto.mentorId,
+        AUTH_ROLES.VOLUNTEER.id,
+      ),
+      this.authorizationService.assertUserHasRole(
+        dto.traineeId,
+        AUTH_ROLES.TRAINEE.id,
+      ),
+    ]);
+
     return this.mentorAssignmentService.assignTrainee(
       dto.mentorId,
       dto.traineeId,
@@ -48,15 +73,32 @@ export default class MentorAssignmentController {
   }
 
   @Delete(':assignmentId')
-  removeAssignment(@Param('assignmentId') id: string) {
+  async removeAssignment(@Param('assignmentId') id: string, @Req() req: any) {
+    await this.authorizationService.assertAdminForAssignment(req.user, id);
     return this.mentorAssignmentService.removeAssignment(id);
   }
 
   @Put(':assignmentId/transfer')
-  transferTrainee(
+  async transferTrainee(
     @Param('assignmentId') id: string,
     @Body() dto: TransferTraineeDto,
+    @Req() req: any,
   ) {
+    const branchId = await this.authorizationService.assertAdminForAssignment(
+      req.user,
+      id,
+    );
+    await Promise.all([
+      this.authorizationService.assertUserBelongsToBranch(
+        dto.newMentorId,
+        branchId,
+      ),
+      this.authorizationService.assertUserHasRole(
+        dto.newMentorId,
+        AUTH_ROLES.VOLUNTEER.id,
+      ),
+    ]);
+
     return this.mentorAssignmentService.transferTrainee(id, dto.newMentorId);
   }
 }

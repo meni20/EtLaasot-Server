@@ -1,15 +1,26 @@
 import { Op, Transaction } from 'sequelize';
 import { Injectable } from '@nestjs/common';
 import Event from './entities/event.entity';
+import User from '../user/entities/user.entity';
 import { IEvent } from './interfaces/event.interface';
 import Attendee from '../attendee/entities/attendee.entity';
-import User from '../user/entities/user.entity';
 
 @Injectable()
 export default class EventRepository {
   public async create(eventDate: IEvent, transaction?: Transaction) {
     return await Event.create(eventDate, { transaction });
   }
+
+  public async updateEvent(id: string, eventData: Partial<IEvent>) {
+  const event = await Event.findByPk(id);
+
+  if (!event) {
+    return null;
+  }
+
+  await event.update(eventData);
+  return event;
+}
 
   public async findAll(branchId?: string): Promise<Event[]> {
     const where: any = {};
@@ -30,12 +41,14 @@ export default class EventRepository {
                 'phoneNumber',
                 'address',
                 'age',
+                'dateOfBirth',
               ],
             },
           ],
         },
       ],
       order: [['start_date', 'DESC']],
+      limit: 500,
     });
   }
 
@@ -53,9 +66,14 @@ export default class EventRepository {
   }
 
   public async getUpcomingByBranch(branchId: string, limit: number) {
+    const now = new Date();
+
     return Event.findAll({
-      where: { branchId },
-      order: [['start_date', 'DESC']],
+      where: {
+        branchId,
+        startDate: { [Op.gte]: now },
+      },
+      order: [['start_date', 'ASC']],
       limit,
       include: [{ model: Attendee }],
     });
@@ -73,6 +91,7 @@ export default class EventRepository {
       },
       include: [{ model: Attendee, include: [{ model: User }] }],
       order: [['start_date', 'ASC']],
+      limit: 1000,
     });
   }
 }

@@ -1,7 +1,17 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import {
+  HttpException,
+  Injectable,
+  InternalServerErrorException,
+  NotFoundException,
+} from '@nestjs/common';
 import EventRepository from './event.repository';
 import { IEvent } from './interfaces/event.interface';
 import AttendeeService from '../attendee/attendee.service';
+
+type EventInput = Omit<IEvent, 'startDate' | 'endDate'> & {
+  startDate: string | Date;
+  endDate: string | Date;
+};
 
 @Injectable()
 export default class EventService {
@@ -10,7 +20,7 @@ export default class EventService {
     private readonly attendeeService: AttendeeService,
   ) { }
 
-  public async createEvent(eventData: IEvent) {
+  public async createEvent(eventData: EventInput) {
     try {
       const payload = {
         ...eventData,
@@ -21,6 +31,29 @@ export default class EventService {
       return event;
     } catch (error) {
       throw new InternalServerErrorException('Failed to create event');
+    }
+  }
+
+  public async updateEvent(id: string, eventData: EventInput) {
+    try {
+      const payload = {
+        ...eventData,
+        startDate: new Date(eventData.startDate),
+        endDate: new Date(eventData.endDate),
+      };
+
+      const event = await this.eventRepository.updateEvent(id, payload);
+
+      if (!event) {
+        throw new NotFoundException('Event not found');
+      }
+
+      return event;
+    } catch (error) {
+      if (error instanceof HttpException) {
+        throw error;
+      }
+      throw new InternalServerErrorException('Failed to update event');
     }
   }
 
@@ -76,5 +109,43 @@ export default class EventService {
         'Failed to fetch events by date range',
       );
     }
+  }
+
+  public async findById(id: string) {
+    try {
+      return await this.eventRepository.findById(id);
+    } catch (error) {
+      throw new InternalServerErrorException('Failed to fetch event');
+    }
+  }
+
+  public async getParticipantsByEvent(eventId: string, actor: any) {
+    return await this.attendeeService.getParticipantsByEvent(eventId, actor);
+  }
+
+  public async createManualPairing(
+    eventId: string,
+    mentorId: string,
+    traineeId: string,
+    actor: any,
+  ) {
+    return await this.attendeeService.createManualPairing(
+      eventId,
+      mentorId,
+      traineeId,
+      actor,
+    );
+  }
+
+  public async deletePairingWithAttendees(
+    eventId: string,
+    pairingId: string,
+    actor: any,
+  ) {
+    return await this.attendeeService.deletePairingWithAttendees(
+      eventId,
+      pairingId,
+      actor,
+    );
   }
 }

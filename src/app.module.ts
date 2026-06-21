@@ -8,34 +8,50 @@ import { UserRoleModule } from './modules/user-role/user-role.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { BranchModule } from './modules/branch/branch.module';
 import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assignment.module';
+import { ActivityModule } from './modules/activity/activity.module';
 import Role from './modules/roles/enitites/roles.entity';
+import { AuthorizationModule } from './modules/auth/authorization.module';
+import {
+  getBooleanEnv,
+  getPortEnv,
+  getRequiredEnv,
+} from './config/env.util';
+
+const getDbDialectOptions = () => {
+  if (!getBooleanEnv('DB_SSL', true)) {
+    return undefined;
+  }
+
+  return {
+    ssl: {
+      require: true,
+      rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
+    },
+  };
+};
 
 @Module({
   imports: [
-    ConfigModule.forRoot(),
+    ConfigModule.forRoot({ isGlobal: true }),
 
     SequelizeModule.forRoot({
       dialect: 'postgres',
-      host: process.env.DB_HOST,
-      port: 5432,
-      username: process.env.DB_USER,
-      password: process.env.DB_PASS,
-      database: process.env.DB_NAME,
+      host: getRequiredEnv('DB_HOST'),
+      port: getPortEnv('DB_PORT', 5432),
+      username: getRequiredEnv('DB_USER'),
+      password: getRequiredEnv('DB_PASS'),
+      database: getRequiredEnv('DB_NAME'),
 
-      ssl: true,
-      dialectOptions: {
-        ssl: {
-          require: true,
-          rejectUnauthorized: false,
-        },
-      },
+      ssl: getBooleanEnv('DB_SSL', true),
+      dialectOptions: getDbDialectOptions(),
 
       autoLoadModels: true,
-      sync: { alter: true },
+      sync: getBooleanEnv('DB_SYNC', false) ? { alter: false } : undefined,
     }),
 
     SequelizeModule.forFeature([Role]),
 
+    AuthorizationModule,
     UserModule,
     AuthModule,
     EventModule,
@@ -43,6 +59,7 @@ import Role from './modules/roles/enitites/roles.entity';
     AttendeeModule,
     BranchModule,
     MentorAssignmentModule,
+    ActivityModule,
   ],
 })
-export class AppModule { }
+export class AppModule {}

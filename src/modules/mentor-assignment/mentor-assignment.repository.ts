@@ -1,4 +1,4 @@
-import { Op, type WhereOptions } from 'sequelize';
+import { Op, Transaction, type WhereOptions } from 'sequelize';
 import { Injectable } from '@nestjs/common';
 import MentorAssignment from './entities/mentor-assignment.entity';
 import User from '../user/entities/user.entity';
@@ -11,8 +11,19 @@ export default class MentorAssignmentRepository {
     mentorId: string;
     traineeId: string;
     branchId: string;
-  }) {
-    return await MentorAssignment.create(data);
+  }, transaction?: Transaction) {
+    return await MentorAssignment.create(data, { transaction });
+  }
+
+  public async findActiveByTrainee(
+    traineeId: string,
+    branchId: string,
+    transaction?: Transaction,
+  ) {
+    return MentorAssignment.findOne({
+      where: { traineeId, branchId, isActive: true },
+      transaction,
+    });
   }
 
   public async findByBranch(branchId: string) {
@@ -27,7 +38,7 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age'],
+          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
         },
       ],
     });
@@ -40,20 +51,23 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age'],
+          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
         },
       ],
     });
   }
 
-  public async findById(id: string) {
-    return await MentorAssignment.findByPk(id);
+  public async findById(id: string, transaction?: Transaction) {
+    return await MentorAssignment.findByPk(id, { transaction });
   }
 
-  public async deactivate(id: string) {
-    const assignment = await MentorAssignment.findByPk(id);
+  public async deactivate(id: string, transaction?: Transaction) {
+    const assignment = await MentorAssignment.findByPk(id, { transaction });
     if (!assignment) return null;
-    return await assignment.update({ isActive: false, endDate: new Date() });
+    return await assignment.update(
+      { isActive: false, endDate: new Date() },
+      { transaction },
+    );
   }
 
   public async getUnassignedTrainees(branchId: string) {

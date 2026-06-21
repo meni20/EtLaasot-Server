@@ -15,6 +15,14 @@ import Branch from 'src/modules/branch/entities/branch.entity';
   tableName: 'mentor_assignment',
   paranoid: true,
   timestamps: true,
+  indexes: [
+    {
+      name: 'mentor_assignment_active_trainee_unique',
+      unique: true,
+      fields: ['branchId', 'traineeId'],
+      where: { isActive: true, deletedAt: null },
+    },
+  ],
 })
 export default class MentorAssignment extends Model {
   @PrimaryKey

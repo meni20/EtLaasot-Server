@@ -1,11 +1,12 @@
-import { Type } from 'class-transformer';
+import { Transform } from 'class-transformer';
 import {
+  IsIn,
   IsString,
   IsDateString,
   IsOptional,
   IsNotEmpty,
-  IsDate,
 } from 'class-validator';
+import { EVENT_TYPE_IDS } from 'src/constants/auth.constants';
 
 export class CreateEventDto {
   @IsString()
@@ -16,16 +17,18 @@ export class CreateEventDto {
   description: string;
 
   @IsDateString()
-  startDate: Date;
+  startDate: string;
 
   @IsDateString()
-  endDate: Date;
+  endDate: string;
 
   @IsString()
   address: string;
 
+  @Transform(({ value }) => (value === '' ? undefined : value))
   @IsString()
   @IsOptional()
+  @IsIn(EVENT_TYPE_IDS)
   eventType?: string;
 
   @IsString()
