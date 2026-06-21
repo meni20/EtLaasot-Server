@@ -1,6 +1,7 @@
 import UserRepository from './user.repository';
-import { IUser, UserGender } from './interfaces/user.interface';
+import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import {
+  BadRequestException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -19,6 +20,8 @@ export default class UserService {
   ) {}
 
   async createUserWithRole(userData: IUser) {
+    this.validateDateOfBirth(userData.dateOfBirth, true);
+
     return await this.sequelize.transaction(async (transaction) => {
       const user = await this.userRepository.create(
         this.normalizeCreateUserData(userData),
@@ -38,6 +41,8 @@ export default class UserService {
   }
 
   async createTraineeWithRole(userData: IUser) {
+    this.validateDateOfBirth(userData.dateOfBirth, true);
+
     return await this.sequelize.transaction(async (transaction) => {
       const user = await this.userRepository.create(
         this.normalizeCreateUserData(userData),
@@ -58,6 +63,14 @@ export default class UserService {
     return {
       ...userData,
       email: userData.email?.trim() || null,
+      dateOfBirth: userData.dateOfBirth ?? null,
+      shirtSize: userData.shirtSize ?? null,
+      customShirtSize:
+        userData.shirtSize === 'OTHER'
+          ? userData.customShirtSize?.trim() || null
+          : null,
+      notes: userData.notes?.trim() || null,
+      parentName: userData.parentName?.trim() || null,
     };
   }
 
@@ -69,9 +82,9 @@ export default class UserService {
     }
   }
 
-  public getAllTrainees(branchId?: string) {
+  public getAllTrainees(branchId?: string, includeNotes = false) {
     try {
-      return this.userRepository.getAllTrainees(branchId);
+      return this.userRepository.getAllTrainees(branchId, includeNotes);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
@@ -93,9 +106,9 @@ export default class UserService {
     }
   }
 
-  public findById(id: string) {
+  public findById(id: string, includeNotes = false) {
     try {
-      return this.userRepository.findById(id);
+      return this.userRepository.findById(id, includeNotes);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
@@ -172,18 +185,33 @@ export default class UserService {
     userId: string,
     data: {
       name: string;
-      age?: number | null;
+      dateOfBirth?: string | null;
       gender?: UserGender | null;
+      shirtSize?: ShirtSize | null;
+      customShirtSize?: string | null;
+      notes?: string | null;
+      parentName?: string | null;
       phoneNumber: string;
       email?: string | null;
       address?: string | null;
     },
   ) {
+    this.validateDateOfBirth(data.dateOfBirth);
+
     try {
       const updateData = {
         name: data.name.trim(),
-        age: data.age ?? null,
+        dateOfBirth: data.dateOfBirth ?? null,
         gender: data.gender ?? null,
+        shirtSize: data.shirtSize ?? null,
+        customShirtSize:
+          data.shirtSize === 'OTHER'
+            ? data.customShirtSize?.trim() || null
+            : null,
+        notes: data.notes?.trim() || null,
+        ...(Object.prototype.hasOwnProperty.call(data, 'parentName')
+          ? { parentName: data.parentName?.trim() || null }
+          : {}),
         phoneNumber: data.phoneNumber.trim(),
         email:
           data.email === undefined || data.email === null
@@ -225,9 +253,63 @@ export default class UserService {
       email: plain.email ?? null,
       address: plain.address ?? null,
       age: plain.age ?? null,
+      dateOfBirth: plain.dateOfBirth ?? null,
+      shirtSize: plain.shirtSize ?? null,
+      customShirtSize: plain.customShirtSize ?? null,
       branchId: plain.branchId ?? null,
       createdAt: plain.createdAt,
       updatedAt: plain.updatedAt,
     };
+  }
+
+  private validateDateOfBirth(
+    dateOfBirth: string | null | undefined,
+    required = false,
+  ) {
+    if (!dateOfBirth) {
+      if (required) {
+        throw new BadRequestException('dateOfBirth is required');
+      }
+      return;
+    }
+
+    const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateOfBirth);
+    if (!match) {
+      throw new BadRequestException('dateOfBirth must be a valid date');
+    }
+
+    const year = Number(match[1]);
+    const month = Number(match[2]);
+    const day = Number(match[3]);
+    const birthDate = new Date(Date.UTC(year, month - 1, day));
+
+    if (
+      birthDate.getUTCFullYear() !== year ||
+      birthDate.getUTCMonth() !== month - 1 ||
+      birthDate.getUTCDate() !== day
+    ) {
+      throw new BadRequestException('dateOfBirth must be a valid date');
+    }
+
+    const now = new Date();
+    const today = new Date(
+      Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()),
+    );
+
+    if (birthDate > today) {
+      throw new BadRequestException('dateOfBirth cannot be in the future');
+    }
+
+    let age = today.getUTCFullYear() - year;
+    if (
+      today.getUTCMonth() < month - 1 ||
+      (today.getUTCMonth() === month - 1 && today.getUTCDate() < day)
+    ) {
+      age -= 1;
+    }
+
+    if (age > 120) {
+      throw new BadRequestException('dateOfBirth must represent age 0-120');
+    }
   }
 }

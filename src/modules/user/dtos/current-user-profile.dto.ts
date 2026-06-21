@@ -25,6 +25,9 @@ export type CurrentUserProfileDto = {
   email?: string | null;
   address?: string | null;
   age?: number | null;
+  dateOfBirth?: string | null;
+  shirtSize?: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'OTHER' | null;
+  customShirtSize?: string | null;
   branchId?: string | null;
   createdAt?: Date;
   updatedAt?: Date;

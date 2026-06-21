@@ -1,7 +1,7 @@
 import { Transaction } from 'sequelize';
 import User from './entities/user.entity';
 import { Injectable } from '@nestjs/common';
-import { IUser, UserGender } from './interfaces/user.interface';
+import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import UserRole from '../user-role/enitites/user-role.entity';
 import Event from '../event/entities/event.entity';
@@ -47,12 +47,15 @@ export default class UserRepository {
     });
   }
 
-  public async getAllTrainees(branchId?: string) {
+  public async getAllTrainees(branchId?: string, includeNotes = false) {
     const where: any = {};
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
       where,
+      attributes: includeNotes
+        ? undefined
+        : { exclude: ['notes', 'parentName'] },
       include: [
         {
           model: UserRole,
@@ -83,8 +86,11 @@ export default class UserRepository {
     });
   }
 
-  public async findById(id: string) {
+  public async findById(id: string, includeNotes = false) {
     return await User.findByPk(id, {
+      attributes: includeNotes
+        ? undefined
+        : { exclude: ['notes', 'parentName'] },
       include: [UserRole],
     });
   }
@@ -110,8 +116,12 @@ export default class UserRepository {
     id: string,
     data: {
       name: string;
-      age?: number | null;
+      dateOfBirth?: string | null;
       gender?: UserGender | null;
+      shirtSize?: ShirtSize | null;
+      customShirtSize?: string | null;
+      notes?: string | null;
+      parentName?: string | null;
       phoneNumber: string;
       email?: string | null;
       address?: string | null;

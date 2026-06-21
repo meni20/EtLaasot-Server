@@ -10,7 +10,7 @@ import {
   BelongsTo,
   BelongsToMany,
 } from 'sequelize-typescript';
-import { IUser, UserGender } from '../interfaces/user.interface';
+import { IUser, ShirtSize, UserGender } from '../interfaces/user.interface';
 import Attendee from 'src/modules/attendee/entities/attendee.entity';
 import Event from 'src/modules/event/entities/event.entity';
 import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
@@ -49,6 +49,26 @@ export default class User extends Model<IUser> {
   @AllowNull
   @Column(DataType.INTEGER)
   declare age: number;
+
+  @AllowNull
+  @Column({ field: 'date_of_birth', type: DataType.DATEONLY })
+  declare dateOfBirth: string | null;
+
+  @AllowNull
+  @Column({ field: 'shirt_size', type: DataType.STRING(10) })
+  declare shirtSize: ShirtSize | null;
+
+  @AllowNull
+  @Column({ field: 'custom_shirt_size', type: DataType.STRING(50) })
+  declare customShirtSize: string | null;
+
+  @AllowNull
+  @Column(DataType.TEXT)
+  declare notes: string | null;
+
+  @AllowNull
+  @Column({ field: 'parent_name', type: DataType.STRING(100) })
+  declare parentName: string | null;
 
   @ForeignKey(() => Branch)
   @AllowNull

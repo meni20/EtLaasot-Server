@@ -92,7 +92,10 @@ export default class UserController {
       this.authorizationService.assertSuperAdmin(req.user);
     }
 
-    return this.userService.getAllTrainees(branchId);
+    const includeNotes = branchId
+      ? this.authorizationService.hasAdminAccess(req.user, branchId)
+      : true;
+    return this.userService.getAllTrainees(branchId, includeNotes);
   }
 
   @Get('get-all')
@@ -114,6 +117,7 @@ export default class UserController {
   @Get(':userId')
   public async getUser(@Param('userId') userId: string, @Req() req: any) {
     await this.authorizationService.assertSelfOrAdminForUser(req.user, userId);
-    return this.userService.findById(userId);
+    const includeNotes = userId !== this.authorizationService.getActorId(req.user);
+    return this.userService.findById(userId, includeNotes);
   }
 }

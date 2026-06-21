@@ -1,4 +1,5 @@
 export type UserGender = 'male' | 'female';
+export type ShirtSize = 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'OTHER';
 
 export interface IUser {
   id: string;
@@ -8,6 +9,11 @@ export interface IUser {
   address?: string | null;
   email?: string | null;
   age?: number | null;
+  dateOfBirth?: string | null;
+  shirtSize?: ShirtSize | null;
+  customShirtSize?: string | null;
+  notes?: string | null;
+  parentName?: string | null;
   branchId?: string | null;
 
   // Timestamps

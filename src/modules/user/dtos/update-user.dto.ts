@@ -1,15 +1,13 @@
 import { Transform } from 'class-transformer';
 import {
   IsEmail,
+  IsDateString,
   IsIn,
-  IsInt,
   IsNotEmpty,
   IsOptional,
   IsString,
   Matches,
-  Max,
   MaxLength,
-  Min,
 } from 'class-validator';
 
 export class UpdateUserDto {
@@ -21,14 +19,39 @@ export class UpdateUserDto {
 
   @Transform(({ value }) => (value === '' ? null : value))
   @IsOptional()
-  @IsInt()
-  @Min(0)
-  @Max(120)
-  age?: number | null;
+  @Matches(/^\d{4}-\d{2}-\d{2}$/)
+  @IsDateString({ strict: true })
+  dateOfBirth?: string | null;
 
   @IsOptional()
   @IsIn(['male', 'female'])
   gender?: 'male' | 'female' | null;
+
+  @IsOptional()
+  @IsIn(['XS', 'S', 'M', 'L', 'XL', 'XXL', 'OTHER'])
+  shirtSize?: 'XS' | 'S' | 'M' | 'L' | 'XL' | 'XXL' | 'OTHER' | null;
+
+  @Transform(({ value }) => (value === '' ? null : value))
+  @IsOptional()
+  @IsString()
+  @MaxLength(50)
+  customShirtSize?: string | null;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || null : value,
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(2000)
+  notes?: string | null;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || null : value,
+  )
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  parentName?: string | null;
 
   @IsString()
   @IsNotEmpty()
