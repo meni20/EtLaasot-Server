@@ -51,6 +51,7 @@ lerna-debug.log*
 .local-postgres.log
 
 # Runtime data
+/.local-postgres/
 pids
 *.pid
 *.seed
