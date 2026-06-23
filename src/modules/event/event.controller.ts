@@ -4,12 +4,18 @@ import {
   Get,
   Delete,
   Put,
+  UploadedFile,
   Param,
   Post,
   Query,
   Req,
   UseGuards,
+  UseInterceptors,
+  ParseFilePipe,
+  MaxFileSizeValidator,
+  FileTypeValidator,
 } from '@nestjs/common';
+import { FileInterceptor } from '@nestjs/platform-express';
 import EventService from './event.service';
 import { CreateEventDto } from './dtos/event.dto';
 import { IEvent } from './interfaces/event.interface';
@@ -34,22 +40,53 @@ export default class EventController {
   }
 
   @Put('update-event/:id')
-public async updateEvent(
-  @Param('id') id: string,
-  @Body() eventData: CreateEventDto,
-  @Req() req: any,
-) {
-  const eventBranchId = await this.authorizationService.assertAdminForEvent(
-    req.user,
-    id,
-  );
+  public async updateEvent(
+    @Param('id') id: string,
+    @Body() eventData: CreateEventDto,
+    @Req() req: any,
+  ) {
+    const eventBranchId = await this.authorizationService.assertAdminForEvent(
+      req.user,
+      id,
+    );
 
-  if (eventData.branchId && eventData.branchId !== eventBranchId) {
-    this.authorizationService.assertSuperAdmin(req.user);
+    if (eventData.branchId && eventData.branchId !== eventBranchId) {
+      this.authorizationService.assertSuperAdmin(req.user);
+    }
+
+    return await this.eventService.updateEvent(id, eventData);
   }
 
-  return await this.eventService.updateEvent(id, eventData);
-}
+  @Put(':eventId/image')
+  @UseInterceptors(FileInterceptor('image'))
+  public async uploadEventImage(
+    @Param('eventId') eventId: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({
+            fileType: /^image\/(jpeg|png|webp)$/,
+            skipMagicNumbersValidation: true,
+          }),
+        ],
+      }),
+    )
+    image: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.uploadEventImage(eventId, image);
+  }
+
+  @Delete(':eventId/image')
+  public async deleteEventImage(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.removeEventImage(eventId);
+  }
 
   @Get('get-all-events')
   public async getAllEvents(

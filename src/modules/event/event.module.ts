@@ -7,11 +7,13 @@ import EventController from './event.controller';
 import { AttendeeModule } from '../attendee/attendee.module';
 import Attendee from '../attendee/entities/attendee.entity';
 import EventPairing from '../attendee/entities/event-pairing.entity';
+import { SupabaseStorageModule } from '../storage/supabase-storage.module';
 
 @Module({
   imports: [
     SequelizeModule.forFeature([Event, Attendee, EventPairing]),
     forwardRef(() => AttendeeModule),
+    SupabaseStorageModule,
   ],
   providers: [EventService, EventRepository],
   controllers: [EventController],
