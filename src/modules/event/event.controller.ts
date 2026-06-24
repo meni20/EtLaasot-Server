@@ -88,6 +88,24 @@ export default class EventController {
     return await this.eventService.removeEventImage(eventId);
   }
 
+  @Get(':eventId/ai-insights')
+  public async getEventAiInsights(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.getEventAiInsights(eventId);
+  }
+
+  @Post(':eventId/generate-ai-summary')
+  public async generateAiSummary(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.generateAiSummary(eventId);
+  }
+
   @Get('get-all-events')
   public async getAllEvents(
     @Query('branchId') branchId?: string,

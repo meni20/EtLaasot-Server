@@ -67,7 +67,10 @@ export default class ActivityRepository {
     return VolunteerActivity.findAll({
       where: { volunteerId },
       include: this.relations,
-      order: [['startTime', 'DESC'], ['createdAt', 'DESC']],
+      order: [
+        ['startTime', 'DESC'],
+        ['createdAt', 'DESC'],
+      ],
       limit,
     });
   }
@@ -118,7 +121,10 @@ export default class ActivityRepository {
     return VolunteerActivity.findAll({
       where,
       include: this.relations,
-      order: [['startTime', 'DESC'], ['createdAt', 'DESC']],
+      order: [
+        ['startTime', 'DESC'],
+        ['createdAt', 'DESC'],
+      ],
       limit: 1000,
     });
   }
@@ -141,8 +147,27 @@ export default class ActivityRepository {
           attributes: ['id', 'name', 'branchId'],
         },
       ],
-      order: [['startTime', 'DESC'], ['createdAt', 'DESC']],
+      order: [
+        ['startTime', 'DESC'],
+        ['createdAt', 'DESC'],
+      ],
       limit: 1000,
+    });
+  }
+
+  public async findCompletedReportsByEvent(eventId: string) {
+    return VolunteerActivity.findAll({
+      where: {
+        eventId,
+        status: VolunteerActivityStatus.COMPLETED,
+        notes: { [Op.not]: null },
+      },
+      include: this.relations,
+      order: [
+        ['startTime', 'ASC'],
+        ['createdAt', 'ASC'],
+      ],
+      limit: 2000,
     });
   }
 

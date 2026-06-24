@@ -33,6 +33,21 @@ export default class EventRepository {
     return event;
   }
 
+  public async updateAiSummary(
+    id: string,
+    aiSummary: string,
+    aiSummaryGeneratedAt: Date,
+  ) {
+    const event = await Event.findByPk(id);
+
+    if (!event) {
+      return null;
+    }
+
+    await event.update({ aiSummary, aiSummaryGeneratedAt });
+    return event;
+  }
+
   public async findAll(branchId?: string): Promise<Event[]> {
     const where: any = {};
     if (branchId) where.branchId = branchId;
