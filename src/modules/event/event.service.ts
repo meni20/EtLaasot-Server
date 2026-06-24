@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   HttpException,
   Injectable,
   InternalServerErrorException,
@@ -10,11 +11,32 @@ import { IEvent } from './interfaces/event.interface';
 import AttendeeService from '../attendee/attendee.service';
 import Event from './entities/event.entity';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
+import ActivityRepository from '../activity/activity.repository';
+import { AiService } from '../ai/ai.service';
+import VolunteerActivity from '../activity/entities/activity.entity';
 
 type EventInput = Omit<IEvent, 'startDate' | 'endDate' | 'imageUrl'> & {
   startDate: string | Date;
   endDate: string | Date;
 };
+
+export interface EventAiInsightNote {
+  id: string;
+  volunteerName: string | null;
+  traineeName: string | null;
+  status: string;
+  notes: string;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
+export interface EventAiInsights {
+  eventId: string;
+  aiSummary: string | null;
+  aiSummaryGeneratedAt: Date | null;
+  isAiSummaryOutdated: boolean;
+  notes: EventAiInsightNote[];
+}
 
 @Injectable()
 export default class EventService {
@@ -24,6 +46,8 @@ export default class EventService {
     private readonly eventRepository: EventRepository,
     private readonly attendeeService: AttendeeService,
     private readonly supabaseStorageService: SupabaseStorageService,
+    private readonly activityRepository: ActivityRepository,
+    private readonly aiService: AiService,
   ) {}
 
   public async createEvent(eventData: EventInput) {
@@ -76,9 +100,7 @@ export default class EventService {
     try {
       return await this.attendeeService.addAttendee(userId, eventId);
     } catch (error) {
-      throw new InternalServerErrorException(
-        'Failed to add attendee to event',
-      );
+      throw new InternalServerErrorException('Failed to add attendee to event');
     }
   }
 
@@ -178,10 +200,7 @@ export default class EventService {
     let event: Event | null;
 
     try {
-      event = await this.eventRepository.updateImagePath(
-        eventId,
-        imagePath,
-      );
+      event = await this.eventRepository.updateImagePath(eventId, imagePath);
 
       if (!event) {
         throw new NotFoundException('Event not found');
@@ -227,8 +246,84 @@ export default class EventService {
     return this.serializeEvent(event);
   }
 
+  public async getEventAiInsights(eventId: string): Promise<EventAiInsights> {
+    const event = await this.eventRepository.findById(eventId);
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const activities = await this.getRelevantCompletedActivities(eventId);
+    const notes = activities.map((activity) => this.toAiInsightNote(activity));
+    const generatedAt = event.aiSummaryGeneratedAt
+      ? new Date(event.aiSummaryGeneratedAt)
+      : null;
+    const generatedAtTime = generatedAt?.getTime() ?? 0;
+
+    const isAiSummaryOutdated =
+      !event.aiSummary ||
+      !generatedAt ||
+      activities.some((activity) => {
+        const updatedAt = new Date(activity.updatedAt).getTime();
+        const createdAt = new Date(activity.createdAt).getTime();
+        return Math.max(updatedAt, createdAt) > generatedAtTime;
+      });
+
+    return {
+      eventId,
+      aiSummary: event.aiSummary,
+      aiSummaryGeneratedAt: event.aiSummaryGeneratedAt,
+      isAiSummaryOutdated,
+      notes,
+    };
+  }
+
+  public async generateAiSummary(eventId: string): Promise<EventAiInsights> {
+    const event = await this.eventRepository.findById(eventId);
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const activities = await this.getRelevantCompletedActivities(eventId);
+
+    if (!activities.length) {
+      throw new BadRequestException(
+        'Cannot generate AI summary without completed activity notes',
+      );
+    }
+
+    const summary = await this.aiService.generateEventSummary(
+      event.name,
+      event.startDate,
+      activities.map((activity) => ({
+        volunteerName: activity.volunteer?.name,
+        traineeName: activity.trainee?.name,
+        status: activity.status,
+        notes: activity.notes?.trim() ?? '',
+        startTime: activity.startTime,
+        endTime: activity.endTime,
+      })),
+    );
+
+    const updatedEvent = await this.eventRepository.updateAiSummary(
+      eventId,
+      summary,
+      new Date(),
+    );
+
+    if (!updatedEvent) {
+      throw new NotFoundException('Event not found');
+    }
+
+    return this.getEventAiInsights(eventId);
+  }
+
   private serializeEvent(event: Event): IEvent {
     const plainEvent = event.toJSON() as IEvent;
+    delete plainEvent.aiSummary;
+    delete plainEvent.aiSummaryGeneratedAt;
+
     return {
       ...plainEvent,
       imageUrl: this.supabaseStorageService.getPublicUrl(plainEvent.imagePath),
@@ -259,5 +354,26 @@ export default class EventService {
     }
 
     return String(error);
+  }
+
+  private async getRelevantCompletedActivities(
+    eventId: string,
+  ): Promise<VolunteerActivity[]> {
+    const activities =
+      await this.activityRepository.findCompletedReportsByEvent(eventId);
+
+    return activities.filter((activity) => Boolean(activity.notes?.trim()));
+  }
+
+  private toAiInsightNote(activity: VolunteerActivity): EventAiInsightNote {
+    return {
+      id: activity.id,
+      volunteerName: activity.volunteer?.name ?? null,
+      traineeName: activity.trainee?.name ?? null,
+      status: activity.status,
+      notes: activity.notes?.trim() ?? '',
+      createdAt: activity.createdAt,
+      updatedAt: activity.updatedAt,
+    };
   }
 }

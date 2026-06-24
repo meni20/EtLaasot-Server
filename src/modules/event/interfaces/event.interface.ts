@@ -9,6 +9,8 @@ export interface IEvent {
   branchId?: string;
   imagePath?: string | null;
   imageUrl?: string | null;
+  aiSummary?: string | null;
+  aiSummaryGeneratedAt?: Date | null;
 
   // Timestamps
   createdAt?: Date;
