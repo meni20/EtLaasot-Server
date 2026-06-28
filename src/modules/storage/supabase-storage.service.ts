@@ -6,18 +6,21 @@ import {
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
-import { getRequiredEnv } from 'src/config/env.util';
+import { getOptionalEnv, getRequiredEnv } from 'src/config/env.util';
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
 ]);
+const DEFAULT_SUPABASE_URL = 'https://tmlnuqrwhdeplpeuuvwv.supabase.co';
+const DEFAULT_EVENT_IMAGES_BUCKET = 'event-images';
 
 @Injectable()
 export class SupabaseStorageService {
   private client?: SupabaseClient;
   private bucket?: string;
+  private publicUrlBase?: string | null;
 
   public async uploadEventImage(
     eventId: string,
@@ -55,9 +58,7 @@ export class SupabaseStorageService {
 
     const client = this.getClient();
     const bucket = this.getBucket();
-    const { error } = await client.storage
-      .from(bucket)
-      .remove([imagePath]);
+    const { error } = await client.storage.from(bucket).remove([imagePath]);
 
     if (error) {
       throw new InternalServerErrorException('Failed to delete event image');
@@ -69,17 +70,13 @@ export class SupabaseStorageService {
       return null;
     }
 
-    try {
-      const client = this.getClient();
-      const bucket = this.getBucket();
-      const { data } = client.storage
-        .from(bucket)
-        .getPublicUrl(imagePath);
+    const publicUrlBase = this.getPublicUrlBase();
 
-      return data.publicUrl;
-    } catch {
+    if (!publicUrlBase) {
       return null;
     }
+
+    return `${publicUrlBase}/${this.encodeStoragePath(imagePath)}`;
   }
 
   private buildEventImagePath(
@@ -115,16 +112,39 @@ export class SupabaseStorageService {
 
   private getBucket(): string {
     if (!this.bucket) {
-      try {
-        this.bucket = getRequiredEnv('SUPABASE_EVENT_IMAGES_BUCKET');
-      } catch {
-        throw new InternalServerErrorException(
-          'Event image storage is not configured',
-        );
-      }
+      this.bucket = getOptionalEnv(
+        'SUPABASE_EVENT_IMAGES_BUCKET',
+        DEFAULT_EVENT_IMAGES_BUCKET,
+      );
     }
 
     return this.bucket;
+  }
+
+  private getPublicUrlBase(): string | null {
+    if (this.publicUrlBase !== undefined) {
+      return this.publicUrlBase;
+    }
+
+    const supabaseUrl = getOptionalEnv('SUPABASE_URL', DEFAULT_SUPABASE_URL);
+    const bucket = this.getBucket();
+
+    if (!supabaseUrl || !bucket) {
+      this.publicUrlBase = null;
+      return this.publicUrlBase;
+    }
+
+    const normalizedSupabaseUrl = supabaseUrl.replace(/\/+$/, '');
+    this.publicUrlBase =
+      `${normalizedSupabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}`;
+    return this.publicUrlBase;
+  }
+
+  private encodeStoragePath(imagePath: string): string {
+    return imagePath
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/');
   }
 
   private getSafeExtension(file: Express.Multer.File): string {
