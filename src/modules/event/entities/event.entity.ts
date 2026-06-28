@@ -45,6 +45,19 @@ export default class Event extends Model<IEvent> {
   @Column({ type: DataType.STRING(30), defaultValue: 'general' })
   declare eventType: string;
 
+  @Column({ field: 'image_path', type: DataType.TEXT, allowNull: true })
+  declare imagePath: string | null;
+
+  @Column({ field: 'ai_summary', type: DataType.TEXT, allowNull: true })
+  declare aiSummary: string | null;
+
+  @Column({
+    field: 'ai_summary_generated_at',
+    type: DataType.DATE,
+    allowNull: true,
+  })
+  declare aiSummaryGeneratedAt: Date | null;
+
   @ForeignKey(() => Branch)
   @AllowNull
   @Column(DataType.STRING(50))

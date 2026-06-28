@@ -7,13 +7,24 @@ import EventController from './event.controller';
 import { AttendeeModule } from '../attendee/attendee.module';
 import Attendee from '../attendee/entities/attendee.entity';
 import EventPairing from '../attendee/entities/event-pairing.entity';
+import { SupabaseStorageModule } from '../storage/supabase-storage.module';
+import VolunteerActivity from '../activity/entities/activity.entity';
+import ActivityRepository from '../activity/activity.repository';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [
-    SequelizeModule.forFeature([Event, Attendee, EventPairing]),
+    SequelizeModule.forFeature([
+      Event,
+      Attendee,
+      EventPairing,
+      VolunteerActivity,
+    ]),
     forwardRef(() => AttendeeModule),
+    SupabaseStorageModule,
+    AiModule,
   ],
-  providers: [EventService, EventRepository],
+  providers: [EventService, EventRepository, ActivityRepository],
   controllers: [EventController],
   exports: [EventService],
 })

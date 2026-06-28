@@ -12,15 +12,41 @@ export default class EventRepository {
   }
 
   public async updateEvent(id: string, eventData: Partial<IEvent>) {
-  const event = await Event.findByPk(id);
+    const event = await Event.findByPk(id);
 
-  if (!event) {
-    return null;
+    if (!event) {
+      return null;
+    }
+
+    await event.update(eventData);
+    return event;
   }
 
-  await event.update(eventData);
-  return event;
-}
+  public async updateImagePath(id: string, imagePath: string | null) {
+    const event = await Event.findByPk(id);
+
+    if (!event) {
+      return null;
+    }
+
+    await event.update({ imagePath });
+    return event;
+  }
+
+  public async updateAiSummary(
+    id: string,
+    aiSummary: string,
+    aiSummaryGeneratedAt: Date,
+  ) {
+    const event = await Event.findByPk(id);
+
+    if (!event) {
+      return null;
+    }
+
+    await event.update({ aiSummary, aiSummaryGeneratedAt });
+    return event;
+  }
 
   public async findAll(branchId?: string): Promise<Event[]> {
     const where: any = {};
