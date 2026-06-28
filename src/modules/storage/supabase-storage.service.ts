@@ -112,10 +112,9 @@ export class SupabaseStorageService {
 
   private getBucket(): string {
     if (!this.bucket) {
-      this.bucket = getOptionalEnv(
-        'SUPABASE_EVENT_IMAGES_BUCKET',
-        DEFAULT_EVENT_IMAGES_BUCKET,
-      );
+      this.bucket =
+        getOptionalEnv('SUPABASE_EVENT_IMAGES_BUCKET') ??
+        DEFAULT_EVENT_IMAGES_BUCKET;
     }
 
     return this.bucket;
