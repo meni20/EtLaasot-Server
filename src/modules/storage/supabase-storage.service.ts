@@ -16,22 +16,8 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
 
 @Injectable()
 export class SupabaseStorageService {
-  private readonly client: SupabaseClient;
-  private readonly bucket: string;
-
-  constructor() {
-    this.client = createClient(
-      getRequiredEnv('SUPABASE_URL'),
-      getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      },
-    );
-    this.bucket = getRequiredEnv('SUPABASE_EVENT_IMAGES_BUCKET');
-  }
+  private client?: SupabaseClient;
+  private bucket?: string;
 
   public async uploadEventImage(
     eventId: string,
@@ -45,9 +31,11 @@ export class SupabaseStorageService {
       throw new BadRequestException('Only JPEG, PNG, and WebP images are allowed');
     }
 
+    const client = this.getClient();
+    const bucket = this.getBucket();
     const path = this.buildEventImagePath(eventId, file);
-    const { error } = await this.client.storage
-      .from(this.bucket)
+    const { error } = await client.storage
+      .from(bucket)
       .upload(path, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
@@ -65,8 +53,10 @@ export class SupabaseStorageService {
       return;
     }
 
-    const { error } = await this.client.storage
-      .from(this.bucket)
+    const client = this.getClient();
+    const bucket = this.getBucket();
+    const { error } = await client.storage
+      .from(bucket)
       .remove([imagePath]);
 
     if (error) {
@@ -79,8 +69,10 @@ export class SupabaseStorageService {
       return null;
     }
 
-    const { data } = this.client.storage
-      .from(this.bucket)
+    const client = this.getClient();
+    const bucket = this.getBucket();
+    const { data } = client.storage
+      .from(bucket)
       .getPublicUrl(imagePath);
 
     return data.publicUrl;
@@ -92,6 +84,43 @@ export class SupabaseStorageService {
   ): string {
     const extension = this.getSafeExtension(file);
     return `events/${eventId}/${randomUUID()}${extension}`;
+  }
+
+  private getClient(): SupabaseClient {
+    if (!this.client) {
+      try {
+        this.client = createClient(
+          getRequiredEnv('SUPABASE_URL'),
+          getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          },
+        );
+      } catch {
+        throw new InternalServerErrorException(
+          'Event image storage is not configured',
+        );
+      }
+    }
+
+    return this.client;
+  }
+
+  private getBucket(): string {
+    if (!this.bucket) {
+      try {
+        this.bucket = getRequiredEnv('SUPABASE_EVENT_IMAGES_BUCKET');
+      } catch {
+        throw new InternalServerErrorException(
+          'Event image storage is not configured',
+        );
+      }
+    }
+
+    return this.bucket;
   }
 
   private getSafeExtension(file: Express.Multer.File): string {

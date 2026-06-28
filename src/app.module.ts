@@ -11,6 +11,8 @@ import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assig
 import { ActivityModule } from './modules/activity/activity.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import {
   getBooleanEnv,
   getPortEnv,
@@ -61,5 +63,7 @@ const getDbDialectOptions = () => {
     MentorAssignmentModule,
     ActivityModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}
