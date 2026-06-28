@@ -69,13 +69,17 @@ export class SupabaseStorageService {
       return null;
     }
 
-    const client = this.getClient();
-    const bucket = this.getBucket();
-    const { data } = client.storage
-      .from(bucket)
-      .getPublicUrl(imagePath);
+    try {
+      const client = this.getClient();
+      const bucket = this.getBucket();
+      const { data } = client.storage
+        .from(bucket)
+        .getPublicUrl(imagePath);
 
-    return data.publicUrl;
+      return data.publicUrl;
+    } catch {
+      return null;
+    }
   }
 
   private buildEventImagePath(
