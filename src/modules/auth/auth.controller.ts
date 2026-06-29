@@ -13,7 +13,6 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
 } from 'class-validator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
@@ -23,12 +22,12 @@ import { isProduction } from 'src/config/env.util';
 class LoginDto {
   @IsOptional()
   @IsString()
-  @Matches(/^\d{5,9}$/)
+  @MaxLength(32)
   userId?: string;
 
   @IsOptional()
   @IsString()
-  @Matches(/^\d{5,9}$/)
+  @MaxLength(32)
   identifyId?: string;
 
   @IsString()
@@ -51,7 +50,7 @@ export default class AuthController {
     const userId = body.userId ?? body.identifyId;
 
     if (!userId) {
-      throw new BadRequestException('userId is required');
+      throw new BadRequestException('national ID is required');
     }
 
     const result = await this.authService.login(

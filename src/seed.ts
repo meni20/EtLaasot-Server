@@ -5,6 +5,7 @@ import UserRole from './modules/user-role/enitites/user-role.entity';
 import Role from './modules/roles/enitites/roles.entity';
 import Branch from './modules/branch/entities/branch.entity';
 import { AUTH_ROLES, BRANCHES } from './constants/auth.constants';
+import { getNationalIdDetails } from './modules/user/national-id.util';
 
 async function seed() {
   const app = await NestFactory.createApplicationContext(AppModule);
@@ -44,11 +45,14 @@ async function seed() {
   // 3. Create super admin user
   const ADMIN_ID = process.env.ADMIN_ID || '000000018';
   const ADMIN_NAME = process.env.ADMIN_NAME || 'מנהל על';
+  const adminNationalId = getNationalIdDetails(ADMIN_ID);
 
   const [adminUser] = await User.findOrCreate({
-    where: { id: ADMIN_ID },
+    where: { nationalIdHash: adminNationalId.nationalIdHash },
     defaults: {
-      id: ADMIN_ID,
+      id: adminNationalId.normalizedNationalId,
+      nationalIdHash: adminNationalId.nationalIdHash,
+      nationalIdLast4: adminNationalId.nationalIdLast4,
       name: ADMIN_NAME,
       phoneNumber: '0500000000',
       email: 'admin@etlaasot.org.il',
@@ -56,18 +60,18 @@ async function seed() {
       age: 30,
     } as any,
   });
-  console.log(`  ✅ Admin user: ${adminUser.name} (${adminUser.id})`);
+  console.log(`  ✅ Admin user: ${adminUser.name}`);
 
   // 4. Assign SUPER_ADMIN role for all branches
   for (const branch of Object.values(BRANCHES)) {
     await UserRole.findOrCreate({
       where: {
-        userId: ADMIN_ID,
+        userId: adminUser.id,
         roleId: AUTH_ROLES.SUPER_ADMIN.id,
         resourceId: branch.id,
       },
       defaults: {
-        userId: ADMIN_ID,
+        userId: adminUser.id,
         roleId: AUTH_ROLES.SUPER_ADMIN.id,
         resourceId: branch.id,
         grantedBy: 'SYSTEM',
@@ -78,7 +82,7 @@ async function seed() {
   }
 
   console.log('\n🎉 Seed completed!');
-  console.log(`\n📋 Login with ID: ${ADMIN_ID}`);
+  console.log(`\n📋 Login with configured admin national ID`);
 
   await app.close();
 }

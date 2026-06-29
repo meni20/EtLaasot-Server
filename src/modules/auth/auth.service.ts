@@ -11,6 +11,11 @@ import {
   getOptionalEnv,
   getRequiredEnv,
 } from 'src/config/env.util';
+import {
+  assertNationalIdHashSecretConfigured,
+  getNationalIdDetails,
+  maskNationalIdLast4,
+} from '../user/national-id.util';
 
 type LoginAttempt = {
   failedCount: number;
@@ -33,18 +38,34 @@ export default class AuthService {
     private readonly userService: UserService,
     private readonly branchService: BranchService,
     private jwt: JwtService,
-  ) {}
+  ) {
+    assertNationalIdHashSecretConfigured();
+  }
 
-  async login(userId: string, loginCode: string, recaptchaToken?: string) {
-    this.assertLoginAllowed(userId);
-    await this.verifyRecaptchaIfConfigured(userId, recaptchaToken);
-    this.verifyLoginCode(userId, loginCode);
+  async login(nationalId: string, loginCode: string, recaptchaToken?: string) {
+    const nationalIdDetails = getNationalIdDetails(nationalId);
+    const attemptKey = nationalIdDetails.nationalIdHash;
 
+    this.assertLoginAllowed(attemptKey);
+    await this.verifyRecaptchaIfConfigured(attemptKey, recaptchaToken);
+    this.verifyLoginCode(attemptKey, loginCode);
+
+    const user = await this.userService.findByNationalIdHash(
+      nationalIdDetails.nationalIdHash,
+    );
+
+    if (!user) {
+      this.registerFailedLogin(attemptKey);
+      this.logger.warn('Login denied: invalid credentials');
+      throw new UnauthorizedException('invalid credentials');
+    }
+
+    const userId = user.id;
     const rows = await this.userRoleService.findRolesByUserId(userId);
 
     if (!rows.length) {
-      this.registerFailedLogin(userId);
-      this.logger.warn(`Login denied for user ${userId}: no permissions`);
+      this.registerFailedLogin(attemptKey);
+      this.logger.warn('Login denied: no permissions');
       throw new UnauthorizedException('no permissions');
     }
 
@@ -70,8 +91,8 @@ export default class AuthService {
     };
 
     const token = this.jwt.sign(payload);
-    this.loginAttempts.delete(userId);
-    this.logger.log(`Successful login for user ${userId}`);
+    this.loginAttempts.delete(attemptKey);
+    this.logger.log('Successful login');
 
     return {
       token,
@@ -102,10 +123,17 @@ export default class AuthService {
 
     const activeBranch = roles[0]?.branchId || '';
 
-    return { userId, name: user?.name || '', roles, activeBranch };
+    return {
+      userId,
+      name: user?.name || '',
+      nationalIdLast4: user?.nationalIdLast4 ?? null,
+      nationalIdMasked: maskNationalIdLast4(user?.nationalIdLast4),
+      roles,
+      activeBranch,
+    };
   }
 
-  private verifyLoginCode(userId: string, loginCode: string) {
+  private verifyLoginCode(attemptKey: string, loginCode: string) {
     const expectedCode = getRequiredEnv('AUTH_LOGIN_CODE');
     const provided = Buffer.from(loginCode);
     const expected = Buffer.from(expectedCode);
@@ -114,21 +142,21 @@ export default class AuthService {
       provided.length !== expected.length ||
       !timingSafeEqual(provided, expected)
     ) {
-      this.registerFailedLogin(userId);
-      this.logger.warn(`Failed login for user ${userId}`);
+      this.registerFailedLogin(attemptKey);
+      this.logger.warn('Failed login attempt');
       throw new UnauthorizedException('invalid credentials');
     }
   }
 
-  private assertLoginAllowed(userId: string) {
-    const attempt = this.loginAttempts.get(userId);
+  private assertLoginAllowed(attemptKey: string) {
+    const attempt = this.loginAttempts.get(attemptKey);
 
     if (!attempt) {
       return;
     }
 
     if (attempt.lockedUntil && attempt.lockedUntil <= Date.now()) {
-      this.loginAttempts.delete(userId);
+      this.loginAttempts.delete(attemptKey);
       return;
     }
 
@@ -139,10 +167,10 @@ export default class AuthService {
     throw new UnauthorizedException('too many login attempts');
   }
 
-  private registerFailedLogin(userId: string) {
+  private registerFailedLogin(attemptKey: string) {
     this.pruneLoginAttempts();
 
-    const current = this.loginAttempts.get(userId) ?? {
+    const current = this.loginAttempts.get(attemptKey) ?? {
       failedCount: 0,
       lockedUntil: 0,
     };
@@ -150,7 +178,7 @@ export default class AuthService {
     const lockedUntil =
       failedCount >= this.maxLoginAttempts ? Date.now() + this.lockoutMs : 0;
 
-    this.loginAttempts.set(userId, { failedCount, lockedUntil });
+    this.loginAttempts.set(attemptKey, { failedCount, lockedUntil });
   }
 
   private pruneLoginAttempts() {
@@ -159,9 +187,9 @@ export default class AuthService {
     }
 
     const now = Date.now();
-    for (const [userId, attempt] of this.loginAttempts.entries()) {
+    for (const [attemptKey, attempt] of this.loginAttempts.entries()) {
       if (!attempt.lockedUntil || attempt.lockedUntil <= now) {
-        this.loginAttempts.delete(userId);
+        this.loginAttempts.delete(attemptKey);
       }
 
       if (this.loginAttempts.size < this.maxLoginAttemptRecords) {
@@ -171,7 +199,7 @@ export default class AuthService {
   }
 
   private async verifyRecaptchaIfConfigured(
-    userId: string,
+    attemptKey: string,
     recaptchaToken?: string,
   ) {
     const secret = getOptionalEnv('RECAPTCHA_SECRET_KEY');
@@ -180,8 +208,8 @@ export default class AuthService {
     }
 
     if (!recaptchaToken) {
-      this.registerFailedLogin(userId);
-      this.logger.warn(`Login denied for user ${userId}: missing recaptcha`);
+      this.registerFailedLogin(attemptKey);
+      this.logger.warn('Login denied: missing recaptcha');
       throw new UnauthorizedException('recaptcha is required');
     }
 
@@ -196,14 +224,14 @@ export default class AuthService {
         timeout: 5000,
       })
       .catch(() => {
-        this.registerFailedLogin(userId);
-        this.logger.warn(`Login denied for user ${userId}: recaptcha error`);
+        this.registerFailedLogin(attemptKey);
+        this.logger.warn('Login denied: recaptcha error');
         throw new UnauthorizedException('recaptcha verification failed');
       });
 
     if (!response.data?.success) {
-      this.registerFailedLogin(userId);
-      this.logger.warn(`Login denied for user ${userId}: recaptcha failed`);
+      this.registerFailedLogin(attemptKey);
+      this.logger.warn('Login denied: recaptcha failed');
       throw new UnauthorizedException('recaptcha verification failed');
     }
   }

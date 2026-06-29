@@ -8,6 +8,15 @@ import Event from '../event/entities/event.entity';
 
 @Injectable()
 export default class UserRepository {
+  private getSafeAttributes(includeNotes = true) {
+    return {
+      exclude: [
+        'nationalIdHash',
+        ...(includeNotes ? [] : ['notes', 'parentName']),
+      ],
+    };
+  }
+
   public async create(userData: IUser, transaction?: Transaction) {
     return await User.create(userData, { transaction });
   }
@@ -18,6 +27,7 @@ export default class UserRepository {
 
     return await User.findAll({
       where,
+      attributes: this.getSafeAttributes(),
       include: [
         UserRole,
         {
@@ -36,6 +46,7 @@ export default class UserRepository {
 
     return await User.findAll({
       where,
+      attributes: this.getSafeAttributes(),
       include: [
         {
           model: UserRole,
@@ -53,9 +64,7 @@ export default class UserRepository {
 
     return await User.findAll({
       where,
-      attributes: includeNotes
-        ? undefined
-        : { exclude: ['notes', 'parentName'] },
+      attributes: this.getSafeAttributes(includeNotes),
       include: [
         {
           model: UserRole,
@@ -83,14 +92,19 @@ export default class UserRepository {
   public async findByIdentifyId(identifyId: string) {
     return await User.findOne({
       where: { id: identifyId },
+      attributes: this.getSafeAttributes(),
+    });
+  }
+
+  public async findByNationalIdHash(nationalIdHash: string) {
+    return await User.findOne({
+      where: { nationalIdHash },
     });
   }
 
   public async findById(id: string, includeNotes = false) {
     return await User.findByPk(id, {
-      attributes: includeNotes
-        ? undefined
-        : { exclude: ['notes', 'parentName'] },
+      attributes: this.getSafeAttributes(includeNotes),
       include: [UserRole],
     });
   }

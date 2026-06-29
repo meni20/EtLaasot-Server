@@ -17,6 +17,7 @@ import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
 import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
+import { maskNationalIdLast4 } from '../national-id.util';
 
 @Table({
   tableName: 'user',
@@ -27,6 +28,13 @@ export default class User extends Model<IUser> {
   @PrimaryKey
   @Column(DataType.STRING)
   declare id: string;
+
+  @Column({ field: 'national_id_hash', type: DataType.STRING(64) })
+  declare nationalIdHash: string;
+
+  @AllowNull
+  @Column({ field: 'national_id_last4', type: DataType.STRING(4) })
+  declare nationalIdLast4: string | null;
 
   @Column(DataType.STRING)
   declare name: string;
@@ -98,4 +106,15 @@ export default class User extends Model<IUser> {
 
   @HasMany(() => VolunteerActivity, 'traineeId')
   declare traineeActivities: VolunteerActivity[];
+
+  toJSON() {
+    const values = { ...super.toJSON() } as Record<string, unknown>;
+    delete values.nationalIdHash;
+
+    values.nationalIdMasked = maskNationalIdLast4(
+      values.nationalIdLast4 as string | null | undefined,
+    );
+
+    return values;
+  }
 }

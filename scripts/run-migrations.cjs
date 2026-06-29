@@ -43,6 +43,13 @@ function getRequiredEnv(key) {
   return value;
 }
 
+function migrationRequiresNationalIdHashSecret(file, sql) {
+  return (
+    file.includes('national_id_hash') ||
+    sql.includes('app.national_id_hash_secret')
+  );
+}
+
 function getBooleanEnv(key, fallback = false) {
   const value = process.env[key]?.trim().toLowerCase();
   if (!value) {
@@ -109,6 +116,13 @@ async function run() {
 
     await client.query('BEGIN');
     try {
+      if (migrationRequiresNationalIdHashSecret(file, sql)) {
+        await client.query('SELECT set_config($1, $2, true)', [
+          'app.national_id_hash_secret',
+          getRequiredEnv('NATIONAL_ID_HASH_SECRET'),
+        ]);
+      }
+
       await client.query(sql);
       await client.query(
         'INSERT INTO schema_migrations (filename) VALUES ($1)',

@@ -2,6 +2,7 @@ import UserRepository from './user.repository';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -10,6 +11,11 @@ import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
 import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
+import {
+  assertNationalIdHashSecretConfigured,
+  getNationalIdDetails,
+  maskNationalIdLast4,
+} from './national-id.util';
 
 @Injectable()
 export default class UserService {
@@ -17,51 +23,73 @@ export default class UserService {
     private readonly sequelize: Sequelize,
     private readonly userRepository: UserRepository,
     private readonly userRoleService: UserRoleService,
-  ) {}
+  ) {
+    assertNationalIdHashSecretConfigured();
+  }
 
   async createUserWithRole(userData: IUser) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
+    const nationalIdDetails = getNationalIdDetails(userData.id);
+    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
 
-    return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(
-        this.normalizeCreateUserData(userData),
-        transaction,
-      );
+    try {
+      return await this.sequelize.transaction(async (transaction) => {
+        const user = await this.userRepository.create(
+          this.normalizeCreateUserData(userData, nationalIdDetails),
+          transaction,
+        );
 
-      await this.userRoleService.asignRoleToUser(
-        user.id,
-        AUTH_ROLES.VOLUNTEER.id,
-        user.name,
-        transaction,
-        userData.branchId ?? undefined,
-      );
+        await this.userRoleService.asignRoleToUser(
+          user.id,
+          AUTH_ROLES.VOLUNTEER.id,
+          user.name,
+          transaction,
+          userData.branchId ?? undefined,
+        );
 
-      return user;
-    });
+        return user;
+      });
+    } catch (err) {
+      this.throwConflictForDuplicateNationalId(err);
+      throw err;
+    }
   }
 
   async createTraineeWithRole(userData: IUser) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
+    const nationalIdDetails = getNationalIdDetails(userData.id);
+    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
 
-    return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(
-        this.normalizeCreateUserData(userData),
-        transaction,
-      );
-      await this.userRoleService.asignRoleToUser(
-        user.id,
-        AUTH_ROLES.TRAINEE.id,
-        user.name,
-        transaction,
-        userData.branchId ?? undefined,
-      );
-      return user;
-    });
+    try {
+      return await this.sequelize.transaction(async (transaction) => {
+        const user = await this.userRepository.create(
+          this.normalizeCreateUserData(userData, nationalIdDetails),
+          transaction,
+        );
+        await this.userRoleService.asignRoleToUser(
+          user.id,
+          AUTH_ROLES.TRAINEE.id,
+          user.name,
+          transaction,
+          userData.branchId ?? undefined,
+        );
+        return user;
+      });
+    } catch (err) {
+      this.throwConflictForDuplicateNationalId(err);
+      throw err;
+    }
   }
 
-  private normalizeCreateUserData(userData: IUser): IUser {
+  private normalizeCreateUserData(
+    userData: IUser,
+    nationalIdDetails: ReturnType<typeof getNationalIdDetails>,
+  ): IUser {
     return {
       ...userData,
+      id: nationalIdDetails.normalizedNationalId,
+      nationalIdHash: nationalIdDetails.nationalIdHash,
+      nationalIdLast4: nationalIdDetails.nationalIdLast4,
       email: userData.email?.trim() || null,
       dateOfBirth: userData.dateOfBirth ?? null,
       shirtSize: userData.shirtSize ?? null,
@@ -109,6 +137,14 @@ export default class UserService {
   public findById(id: string, includeNotes = false) {
     try {
       return this.userRepository.findById(id, includeNotes);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findByNationalIdHash(nationalIdHash: string) {
+    try {
+      return this.userRepository.findByNationalIdHash(nationalIdHash);
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
@@ -247,6 +283,8 @@ export default class UserService {
 
     return {
       id: plain.id,
+      nationalIdLast4: plain.nationalIdLast4 ?? null,
+      nationalIdMasked: maskNationalIdLast4(plain.nationalIdLast4),
       name: plain.name,
       phoneNumber: plain.phoneNumber ?? null,
       gender: plain.gender ?? null,
@@ -260,6 +298,27 @@ export default class UserService {
       createdAt: plain.createdAt,
       updatedAt: plain.updatedAt,
     };
+  }
+
+  private async assertNationalIdAvailable(nationalIdHash: string) {
+    const existing = await this.userRepository.findByNationalIdHash(
+      nationalIdHash,
+    );
+
+    if (existing) {
+      throw new ConflictException('User with this national ID already exists');
+    }
+  }
+
+  private throwConflictForDuplicateNationalId(error: unknown) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'name' in error &&
+      error.name === 'SequelizeUniqueConstraintError'
+    ) {
+      throw new ConflictException('User with this national ID already exists');
+    }
   }
 
   private validateDateOfBirth(
