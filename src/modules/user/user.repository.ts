@@ -11,7 +11,9 @@ export default class UserRepository {
   private getSafeAttributes(includeNotes = true) {
     return {
       exclude: [
+        'uuidId',
         'nationalIdHash',
+        'nationalIdEncrypted',
         ...(includeNotes ? [] : ['notes', 'parentName']),
       ],
     };

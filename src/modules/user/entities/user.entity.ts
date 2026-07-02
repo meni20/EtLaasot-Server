@@ -29,12 +29,20 @@ export default class User extends Model<IUser> {
   @Column(DataType.STRING)
   declare id: string;
 
+  @AllowNull
+  @Column({ field: 'uuid_id', type: DataType.UUID })
+  declare uuidId: string | null;
+
   @Column({ field: 'national_id_hash', type: DataType.STRING(64) })
   declare nationalIdHash: string;
 
   @AllowNull
   @Column({ field: 'national_id_last4', type: DataType.STRING(4) })
   declare nationalIdLast4: string | null;
+
+  @AllowNull
+  @Column({ field: 'national_id_encrypted', type: DataType.TEXT })
+  declare nationalIdEncrypted: string | null;
 
   @Column(DataType.STRING)
   declare name: string;
@@ -109,7 +117,9 @@ export default class User extends Model<IUser> {
 
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
+    delete values.uuidId;
     delete values.nationalIdHash;
+    delete values.nationalIdEncrypted;
 
     values.nationalIdMasked = maskNationalIdLast4(
       values.nationalIdLast4 as string | null | undefined,

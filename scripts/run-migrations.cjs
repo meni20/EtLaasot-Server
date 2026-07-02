@@ -50,6 +50,14 @@ function migrationRequiresNationalIdHashSecret(file, sql) {
   );
 }
 
+function isSqlMigration(file) {
+  return file.endsWith('.sql');
+}
+
+function isNodeMigration(file) {
+  return file.endsWith('.cjs');
+}
+
 function getBooleanEnv(key, fallback = false) {
   const value = process.env[key]?.trim().toLowerCase();
   if (!value) {
@@ -77,7 +85,9 @@ function getClientConfig() {
     password: getRequiredEnv('DB_PASS'),
     database: getRequiredEnv('DB_NAME'),
     ssl: sslEnabled
-      ? { rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true) }
+      ? {
+          rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
+        }
       : false,
   };
 }
@@ -97,7 +107,7 @@ async function run() {
 
   const files = fs
     .readdirSync(migrationsDir)
-    .filter((file) => file.endsWith('.sql'))
+    .filter((file) => isSqlMigration(file) || isNodeMigration(file))
     .sort();
 
   for (const file of files) {
@@ -112,7 +122,10 @@ async function run() {
     }
 
     console.log(`Applying ${file}`);
-    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    const migrationPath = path.join(migrationsDir, file);
+    const sql = isSqlMigration(file)
+      ? fs.readFileSync(migrationPath, 'utf8')
+      : '';
 
     await client.query('BEGIN');
     try {
@@ -123,7 +136,21 @@ async function run() {
         ]);
       }
 
-      await client.query(sql);
+      if (isSqlMigration(file)) {
+        await client.query(sql);
+      } else {
+        const migration = require(migrationPath);
+
+        if (!migration || typeof migration.up !== 'function') {
+          throw new Error(`Node migration ${file} must export an up function`);
+        }
+
+        await migration.up({
+          client,
+          getRequiredEnv,
+        });
+      }
+
       await client.query(
         'INSERT INTO schema_migrations (filename) VALUES ($1)',
         [file],

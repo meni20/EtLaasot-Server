@@ -6,6 +6,7 @@ import Role from './modules/roles/enitites/roles.entity';
 import Branch from './modules/branch/entities/branch.entity';
 import { AUTH_ROLES, BRANCHES } from './constants/auth.constants';
 import { getNationalIdDetails } from './modules/user/national-id.util';
+import { encryptNationalId } from './modules/user/national-id-encryption.util';
 
 async function seed() {
   const app = await NestFactory.createApplicationContext(AppModule);
@@ -53,6 +54,9 @@ async function seed() {
       id: adminNationalId.normalizedNationalId,
       nationalIdHash: adminNationalId.nationalIdHash,
       nationalIdLast4: adminNationalId.nationalIdLast4,
+      nationalIdEncrypted: encryptNationalId(
+        adminNationalId.normalizedNationalId,
+      ),
       name: ADMIN_NAME,
       phoneNumber: '0500000000',
       email: 'admin@etlaasot.org.il',

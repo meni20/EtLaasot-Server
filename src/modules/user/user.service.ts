@@ -16,6 +16,10 @@ import {
   getNationalIdDetails,
   maskNationalIdLast4,
 } from './national-id.util';
+import {
+  assertNationalIdEncryptionKeyConfigured,
+  encryptNationalId,
+} from './national-id-encryption.util';
 
 @Injectable()
 export default class UserService {
@@ -25,6 +29,7 @@ export default class UserService {
     private readonly userRoleService: UserRoleService,
   ) {
     assertNationalIdHashSecretConfigured();
+    assertNationalIdEncryptionKeyConfigured();
   }
 
   async createUserWithRole(userData: IUser) {
@@ -90,6 +95,9 @@ export default class UserService {
       id: nationalIdDetails.normalizedNationalId,
       nationalIdHash: nationalIdDetails.nationalIdHash,
       nationalIdLast4: nationalIdDetails.nationalIdLast4,
+      nationalIdEncrypted: encryptNationalId(
+        nationalIdDetails.normalizedNationalId,
+      ),
       email: userData.email?.trim() || null,
       dateOfBirth: userData.dateOfBirth ?? null,
       shirtSize: userData.shirtSize ?? null,
@@ -301,9 +309,8 @@ export default class UserService {
   }
 
   private async assertNationalIdAvailable(nationalIdHash: string) {
-    const existing = await this.userRepository.findByNationalIdHash(
-      nationalIdHash,
-    );
+    const existing =
+      await this.userRepository.findByNationalIdHash(nationalIdHash);
 
     if (existing) {
       throw new ConflictException('User with this national ID already exists');
