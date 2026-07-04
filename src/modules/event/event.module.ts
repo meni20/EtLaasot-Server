@@ -11,6 +11,7 @@ import { SupabaseStorageModule } from '../storage/supabase-storage.module';
 import VolunteerActivity from '../activity/entities/activity.entity';
 import ActivityRepository from '../activity/activity.repository';
 import { AiModule } from '../ai/ai.module';
+import { UserModule } from '../user/user.module';
 
 @Module({
   imports: [
@@ -23,6 +24,7 @@ import { AiModule } from '../ai/ai.module';
     forwardRef(() => AttendeeModule),
     SupabaseStorageModule,
     AiModule,
+    UserModule,
   ],
   providers: [EventService, EventRepository, ActivityRepository],
   controllers: [EventController],

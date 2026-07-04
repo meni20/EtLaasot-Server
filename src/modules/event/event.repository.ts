@@ -62,6 +62,7 @@ export default class EventRepository {
               model: User,
               attributes: [
                 'id',
+                'uuidId',
                 'name',
                 'email',
                 'phoneNumber',
@@ -84,7 +85,10 @@ export default class EventRepository {
         {
           model: Attendee,
           include: [
-            { model: User, attributes: ['id', 'name', 'email', 'phoneNumber'] },
+            {
+              model: User,
+              attributes: ['id', 'uuidId', 'name', 'email', 'phoneNumber'],
+            },
           ],
         },
       ],

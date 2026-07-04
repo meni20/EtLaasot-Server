@@ -12,10 +12,7 @@ import Event from '../event/entities/event.entity';
 import MentorAssignment from '../mentor-assignment/entities/mentor-assignment.entity';
 import User from '../user/entities/user.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
-import {
-  AttendanceIntent,
-  AttendeeRsvpStatus,
-} from './attendee.constants';
+import { AttendanceIntent, AttendeeRsvpStatus } from './attendee.constants';
 
 type AuthenticatedUser = {
   userId?: string;
@@ -37,7 +34,7 @@ export default class AttendeeService {
         userId,
         eventId,
       );
-      return attendee;
+      return this.toSafeAttendee(attendee);
     } catch (error) {
       throw new InternalServerErrorException('Failed to create attendee');
     }
@@ -49,11 +46,12 @@ export default class AttendeeService {
     rsvpStatus: AttendeeRsvpStatus,
   ) {
     try {
-      return await this.attendeeRepository.createAndConfirm(
+      const attendee = await this.attendeeRepository.createAndConfirm(
         userId,
         eventId,
         rsvpStatus,
       );
+      return this.toSafeAttendee(attendee);
     } catch (error) {
       throw new InternalServerErrorException('Failed to join event');
     }
@@ -61,7 +59,9 @@ export default class AttendeeService {
 
   public async getAllAttendeesByEvent(eventId: string) {
     try {
-      return await this.attendeeRepository.getAttendeesByEvent(eventId);
+      const attendees =
+        await this.attendeeRepository.getAttendeesByEvent(eventId);
+      return attendees.map((attendee) => this.toSafeAttendee(attendee));
     } catch (error) {
       throw new InternalServerErrorException(
         'Failed to fetch attendees by event',
@@ -69,10 +69,7 @@ export default class AttendeeService {
     }
   }
 
-  public async updateRsvp(
-    attendeeId: string,
-    rsvpStatus: AttendeeRsvpStatus,
-  ) {
+  public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
     try {
       return await this.attendeeRepository.updateRsvp(attendeeId, rsvpStatus);
     } catch (error) {
@@ -142,7 +139,10 @@ export default class AttendeeService {
     }
 
     if (traineeId) {
-      await this.assertUsersBelongToBranch([volunteerId, traineeId], event.branchId);
+      await this.assertUsersBelongToBranch(
+        [volunteerId, traineeId],
+        event.branchId,
+      );
     } else {
       await this.assertUsersBelongToBranch([volunteerId], event.branchId);
     }
@@ -218,7 +218,6 @@ export default class AttendeeService {
           transaction,
         );
       }
-
     });
 
     return this.getParticipantsByEvent(eventId, actor);
@@ -241,12 +240,7 @@ export default class AttendeeService {
       pairedUserIds.add(pairing.traineeId);
 
       return {
-        id: pairing.id,
-        eventId: pairing.eventId,
-        mentorId: pairing.mentorId,
-        traineeId: pairing.traineeId,
-        mentor: pairing.mentor,
-        trainee: pairing.trainee,
+        ...(pairing.toJSON() as Record<string, unknown>),
       };
     });
 
@@ -261,7 +255,15 @@ export default class AttendeeService {
         this.userHasRole(attendee.user, AUTH_ROLES.TRAINEE.id),
     );
 
-    return { paired, unpairedMentors, unpairedTrainees };
+    return {
+      paired,
+      unpairedMentors: unpairedMentors.map((attendee) =>
+        this.toSafeAttendee(attendee),
+      ),
+      unpairedTrainees: unpairedTrainees.map((attendee) =>
+        this.toSafeAttendee(attendee),
+      ),
+    };
   }
 
   public async createManualPairing(
@@ -301,7 +303,6 @@ export default class AttendeeService {
         event.branchId,
         transaction,
       );
-
     });
 
     return this.getParticipantsByEvent(eventId, actor);
@@ -327,7 +328,6 @@ export default class AttendeeService {
       }
 
       await this.attendeeRepository.deletePairing(pairing.id, transaction);
-
     });
 
     return this.getParticipantsByEvent(eventId, actor);
@@ -419,7 +419,9 @@ export default class AttendeeService {
       throw new NotFoundException('User not found');
     }
 
-    const invalid = users.some((user) => !this.userBelongsToBranch(user, branchId));
+    const invalid = users.some(
+      (user) => !this.userBelongsToBranch(user, branchId),
+    );
     if (invalid) {
       throw new ForbiddenException('Cross-branch pairing is not allowed');
     }
@@ -437,13 +439,18 @@ export default class AttendeeService {
       return true;
     }
     return (
-      user.userRoles?.some(
-        (role) => String(role.resourceId) === branchId,
-      ) ?? false
+      user.userRoles?.some((role) => String(role.resourceId) === branchId) ??
+      false
     );
   }
 
   private userHasRole(user: User | undefined, roleId: number) {
     return user?.userRoles?.some((role) => role.roleId === roleId) ?? false;
+  }
+
+  private toSafeAttendee(attendee: any) {
+    return typeof attendee?.toJSON === 'function'
+      ? attendee.toJSON()
+      : attendee;
   }
 }

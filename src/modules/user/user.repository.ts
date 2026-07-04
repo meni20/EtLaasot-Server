@@ -1,4 +1,4 @@
-import { Transaction } from 'sequelize';
+import { col, FindAttributeOptions, Transaction } from 'sequelize';
 import User from './entities/user.entity';
 import { Injectable } from '@nestjs/common';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
@@ -8,28 +8,41 @@ import Event from '../event/entities/event.entity';
 
 @Injectable()
 export default class UserRepository {
-  private getSafeAttributes(includeNotes = true) {
-    return {
+  private getSafeAttributes(
+    includeNotes = true,
+    includeNationalIdRevealId = false,
+  ): FindAttributeOptions {
+    const safeAttributes: FindAttributeOptions = {
       exclude: [
-        'uuidId',
         'nationalIdHash',
         'nationalIdEncrypted',
         ...(includeNotes ? [] : ['notes', 'parentName']),
       ],
     };
+
+    if (includeNationalIdRevealId && !Array.isArray(safeAttributes)) {
+      safeAttributes.include = [
+        [col('uuid_id'), 'nationalIdRevealId'] as unknown as string,
+      ];
+    }
+
+    return safeAttributes;
   }
 
   public async create(userData: IUser, transaction?: Transaction) {
     return await User.create(userData, { transaction });
   }
 
-  public async getAllUsers(branchId?: string) {
+  public async getAllUsers(
+    branchId?: string,
+    includeNationalIdRevealId = false,
+  ) {
     const where: any = {};
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
       where,
-      attributes: this.getSafeAttributes(),
+      attributes: this.getSafeAttributes(true, includeNationalIdRevealId),
       include: [
         UserRole,
         {
@@ -42,13 +55,16 @@ export default class UserRepository {
     });
   }
 
-  public async getAllVolunteers(branchId?: string) {
+  public async getAllVolunteers(
+    branchId?: string,
+    includeNationalIdRevealId = false,
+  ) {
     const where: any = {};
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
       where,
-      attributes: this.getSafeAttributes(),
+      attributes: this.getSafeAttributes(true, includeNationalIdRevealId),
       include: [
         {
           model: UserRole,
@@ -60,13 +76,20 @@ export default class UserRepository {
     });
   }
 
-  public async getAllTrainees(branchId?: string, includeNotes = false) {
+  public async getAllTrainees(
+    branchId?: string,
+    includeNotes = false,
+    includeNationalIdRevealId = false,
+  ) {
     const where: any = {};
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
       where,
-      attributes: this.getSafeAttributes(includeNotes),
+      attributes: this.getSafeAttributes(
+        includeNotes,
+        includeNationalIdRevealId,
+      ),
       include: [
         {
           model: UserRole,
@@ -101,6 +124,20 @@ export default class UserRepository {
   public async findByNationalIdHash(nationalIdHash: string) {
     return await User.findOne({
       where: { nationalIdHash },
+    });
+  }
+
+  public async findByUuidForNationalIdReveal(uuidId: string) {
+    return await User.findOne({
+      where: { uuidId },
+      attributes: ['uuidId', 'nationalIdEncrypted'],
+    });
+  }
+
+  public async findLegacyIdByUuid(uuidId: string) {
+    return await User.findOne({
+      where: { uuidId },
+      attributes: ['id', 'uuidId'],
     });
   }
 

@@ -23,12 +23,12 @@ export default class ActivityRepository {
     {
       model: User,
       as: 'volunteer',
-      attributes: ['id', 'name', 'branchId'],
+      attributes: ['id', 'uuidId', 'name', 'branchId'],
     },
     {
       model: User,
       as: 'trainee',
-      attributes: ['id', 'name', 'branchId'],
+      attributes: ['id', 'uuidId', 'name', 'branchId'],
     },
     {
       model: Event,
@@ -144,7 +144,7 @@ export default class ActivityRepository {
         {
           model: User,
           as: 'volunteer',
-          attributes: ['id', 'name', 'branchId'],
+          attributes: ['id', 'uuidId', 'name', 'branchId'],
         },
       ],
       order: [

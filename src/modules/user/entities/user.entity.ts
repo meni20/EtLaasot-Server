@@ -117,6 +117,14 @@ export default class User extends Model<IUser> {
 
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
+    const safeUserId = this.getDataValue('uuidId') as string | null | undefined;
+
+    if (safeUserId) {
+      values.id = safeUserId;
+    } else {
+      delete values.id;
+    }
+
     delete values.uuidId;
     delete values.nationalIdHash;
     delete values.nationalIdEncrypted;

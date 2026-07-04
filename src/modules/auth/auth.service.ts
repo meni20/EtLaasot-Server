@@ -27,7 +27,8 @@ export default class AuthService {
   private readonly logger = new Logger(AuthService.name);
   private readonly loginAttempts = new Map<string, LoginAttempt>();
   private readonly maxLoginAttempts = getIntegerEnv('AUTH_MAX_ATTEMPTS', 5);
-  private readonly lockoutMs = getIntegerEnv('AUTH_LOCKOUT_SECONDS', 300) * 1000;
+  private readonly lockoutMs =
+    getIntegerEnv('AUTH_LOCKOUT_SECONDS', 300) * 1000;
   private readonly maxLoginAttemptRecords = getIntegerEnv(
     'AUTH_MAX_ATTEMPT_RECORDS',
     5000,
@@ -122,9 +123,11 @@ export default class AuthService {
     }));
 
     const activeBranch = roles[0]?.branchId || '';
+    const safeUser =
+      user && typeof user.toJSON === 'function' ? user.toJSON() : user;
 
     return {
-      userId,
+      userId: safeUser?.id ?? '',
       name: user?.name || '',
       nationalIdLast4: user?.nationalIdLast4 ?? null,
       nationalIdMasked: maskNationalIdLast4(user?.nationalIdLast4),

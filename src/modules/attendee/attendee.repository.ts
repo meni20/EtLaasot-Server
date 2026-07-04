@@ -46,7 +46,9 @@ export default class AttendeeRepository {
 
       await existing.update({ rsvpStatus, rsvpDate: new Date() });
       return existing.reload({
-        include: [{ model: User, attributes: ['id', 'name', 'email'] }],
+        include: [
+          { model: User, attributes: ['id', 'uuidId', 'name', 'email'] },
+        ],
       });
     }
     const attendee = await Attendee.create({
@@ -56,7 +58,7 @@ export default class AttendeeRepository {
       rsvpDate: new Date(),
     });
     return attendee.reload({
-      include: [{ model: User, attributes: ['id', 'name', 'email'] }],
+      include: [{ model: User, attributes: ['id', 'uuidId', 'name', 'email'] }],
     });
   }
 
@@ -66,7 +68,14 @@ export default class AttendeeRepository {
       include: [
         {
           model: User,
-          attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+          attributes: [
+            'id',
+            'uuidId',
+            'name',
+            'email',
+            'phoneNumber',
+            'branchId',
+          ],
           include: [{ model: UserRole }],
         },
       ],
@@ -76,14 +85,11 @@ export default class AttendeeRepository {
 
   public async findById(attendeeId: string) {
     return Attendee.findByPk(attendeeId, {
-      include: [{ model: User, attributes: ['id', 'name', 'email'] }],
+      include: [{ model: User, attributes: ['id', 'uuidId', 'name', 'email'] }],
     });
   }
 
-  public async updateRsvp(
-    attendeeId: string,
-    rsvpStatus: AttendeeRsvpStatus,
-  ) {
+  public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
     return Attendee.update(
       { rsvpStatus, rsvpDate: new Date() },
       { where: { id: attendeeId } },
@@ -151,7 +157,11 @@ export default class AttendeeRepository {
     branchId: string,
     transaction: Transaction,
   ) {
-    await this.removePairingsForUsers(eventId, [mentorId, traineeId], transaction);
+    await this.removePairingsForUsers(
+      eventId,
+      [mentorId, traineeId],
+      transaction,
+    );
     return EventPairing.create(
       { eventId, mentorId, traineeId, branchId },
       { transaction },
@@ -180,7 +190,14 @@ export default class AttendeeRepository {
         include: [
           {
             model: User,
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: [
+              'id',
+              'uuidId',
+              'name',
+              'email',
+              'phoneNumber',
+              'branchId',
+            ],
             include: [{ model: UserRole }],
           },
         ],
@@ -193,12 +210,26 @@ export default class AttendeeRepository {
           {
             model: User,
             as: 'mentor',
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: [
+              'id',
+              'uuidId',
+              'name',
+              'email',
+              'phoneNumber',
+              'branchId',
+            ],
           },
           {
             model: User,
             as: 'trainee',
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: [
+              'id',
+              'uuidId',
+              'name',
+              'email',
+              'phoneNumber',
+              'branchId',
+            ],
           },
         ],
         order: [['createdAt', 'ASC']],

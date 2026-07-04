@@ -22,6 +22,10 @@ export default class UserRole extends Model {
   @Column(DataType.STRING)
   declare userId: string;
 
+  @AllowNull
+  @Column({ field: 'user_uuid', type: DataType.UUID })
+  declare userUuid: string | null;
+
   @PrimaryKey
   @ForeignKey(() => Role)
   @Column(DataType.INTEGER)
@@ -40,4 +44,22 @@ export default class UserRole extends Model {
 
   @BelongsTo(() => User)
   declare user: User;
+
+  toJSON() {
+    const values = { ...super.toJSON() } as Record<string, unknown>;
+    const safeUserId = this.getDataValue('userUuid') as
+      | string
+      | null
+      | undefined;
+
+    if (safeUserId) {
+      values.userId = safeUserId;
+    } else {
+      delete values.userId;
+    }
+
+    delete values.userUuid;
+
+    return values;
+  }
 }

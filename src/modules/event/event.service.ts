@@ -14,6 +14,7 @@ import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import ActivityRepository from '../activity/activity.repository';
 import { AiService } from '../ai/ai.service';
 import VolunteerActivity from '../activity/entities/activity.entity';
+import UserService from '../user/user.service';
 
 type EventInput = Omit<IEvent, 'startDate' | 'endDate' | 'imageUrl'> & {
   startDate: string | Date;
@@ -48,6 +49,7 @@ export default class EventService {
     private readonly supabaseStorageService: SupabaseStorageService,
     private readonly activityRepository: ActivityRepository,
     private readonly aiService: AiService,
+    private readonly userService: UserService,
   ) {}
 
   public async createEvent(eventData: EventInput) {
@@ -98,7 +100,8 @@ export default class EventService {
 
   public async addAttendee(userId: string, eventId: string) {
     try {
-      return await this.attendeeService.addAttendee(userId, eventId);
+      const legacyUserId = await this.userService.resolveLegacyUserId(userId);
+      return await this.attendeeService.addAttendee(legacyUserId, eventId);
     } catch (error) {
       throw new InternalServerErrorException('Failed to add attendee to event');
     }
@@ -164,10 +167,13 @@ export default class EventService {
     traineeId: string,
     actor: any,
   ) {
+    const [legacyMentorId, legacyTraineeId] =
+      await this.userService.resolveLegacyUserIds([mentorId, traineeId]);
+
     return await this.attendeeService.createManualPairing(
       eventId,
-      mentorId,
-      traineeId,
+      legacyMentorId,
+      legacyTraineeId,
       actor,
     );
   }

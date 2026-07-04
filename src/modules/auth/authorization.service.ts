@@ -188,6 +188,39 @@ export class AuthorizationService {
     }
   }
 
+  async assertAdminForUserUuid(user: AuthUser, targetUserUuid: string) {
+    const targetUser = await User.findOne({
+      where: { uuidId: targetUserUuid },
+      attributes: ['id', 'uuidId', 'branchId'],
+      include: [{ model: UserRole, attributes: ['roleId', 'resourceId'] }],
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (this.isSuperAdmin(user)) {
+      return;
+    }
+
+    if (
+      targetUser.userRoles?.some(
+        (role) => role.roleId === AUTH_ROLES.SUPER_ADMIN.id,
+      )
+    ) {
+      throw new ForbiddenException('User access denied');
+    }
+
+    const branchIds = this.getBranchIdsFromUser(targetUser);
+    const hasAdminAccess = Array.from(branchIds).some((branchId) =>
+      this.hasAdminAccess(user, branchId),
+    );
+
+    if (!hasAdminAccess) {
+      throw new ForbiddenException('User access denied');
+    }
+  }
+
   async assertUserBelongsToBranch(userId: string, branchId: string) {
     const branchIds = await this.getUserBranchIds(userId);
 

@@ -40,6 +40,10 @@ export default class Attendee extends Model {
   @Column(DataType.STRING)
   declare userId: string;
 
+  @AllowNull
+  @Column({ field: 'user_uuid', type: DataType.UUID })
+  declare userUuid: string | null;
+
   @Column({
     type: DataType.ENUM(...Object.values(AttendeeRsvpStatus)),
     defaultValue: AttendeeRsvpStatus.PENDING,
@@ -63,6 +67,10 @@ export default class Attendee extends Model {
   declare checkedInBy: string;
 
   @AllowNull
+  @Column({ field: 'checked_in_by_uuid', type: DataType.UUID })
+  declare checkedInByUuid: string | null;
+
+  @AllowNull
   @Column(DataType.TEXT)
   declare notes: string;
 
@@ -71,4 +79,33 @@ export default class Attendee extends Model {
 
   @BelongsTo(() => User, 'userId')
   declare user: User;
+
+  toJSON() {
+    const values = { ...super.toJSON() } as Record<string, unknown>;
+    const safeUserId = this.getDataValue('userUuid') as
+      | string
+      | null
+      | undefined;
+    const safeCheckedInBy = this.getDataValue('checkedInByUuid') as
+      | string
+      | null
+      | undefined;
+
+    if (safeUserId) {
+      values.userId = safeUserId;
+    } else {
+      delete values.userId;
+    }
+
+    if (safeCheckedInBy) {
+      values.checkedInBy = safeCheckedInBy;
+    } else {
+      delete values.checkedInBy;
+    }
+
+    delete values.userUuid;
+    delete values.checkedInByUuid;
+
+    return values;
+  }
 }

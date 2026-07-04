@@ -7,11 +7,14 @@ import { AUTH_ROLES } from 'src/constants/auth.constants';
 
 @Injectable()
 export default class MentorAssignmentRepository {
-  public async create(data: {
-    mentorId: string;
-    traineeId: string;
-    branchId: string;
-  }, transaction?: Transaction) {
+  public async create(
+    data: {
+      mentorId: string;
+      traineeId: string;
+      branchId: string;
+    },
+    transaction?: Transaction,
+  ) {
     return await MentorAssignment.create(data, { transaction });
   }
 
@@ -33,12 +36,20 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'mentor',
-          attributes: ['id', 'name', 'phoneNumber', 'email'],
+          attributes: ['id', 'uuidId', 'name', 'phoneNumber', 'email'],
         },
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
+          attributes: [
+            'id',
+            'uuidId',
+            'name',
+            'phoneNumber',
+            'email',
+            'age',
+            'dateOfBirth',
+          ],
         },
       ],
     });
@@ -51,7 +62,15 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
-          attributes: ['id', 'name', 'phoneNumber', 'email', 'age', 'dateOfBirth'],
+          attributes: [
+            'id',
+            'uuidId',
+            'name',
+            'phoneNumber',
+            'email',
+            'age',
+            'dateOfBirth',
+          ],
         },
       ],
     });

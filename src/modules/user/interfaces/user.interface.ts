@@ -7,6 +7,7 @@ export interface IUser {
   nationalIdHash?: string;
   nationalIdLast4?: string | null;
   nationalIdEncrypted?: string | null;
+  nationalIdRevealId?: string | null;
   nationalIdMasked?: string | null;
   name: string;
   phoneNumber: string;

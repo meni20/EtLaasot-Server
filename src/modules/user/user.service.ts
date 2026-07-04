@@ -18,6 +18,7 @@ import {
 } from './national-id.util';
 import {
   assertNationalIdEncryptionKeyConfigured,
+  decryptNationalId,
   encryptNationalId,
 } from './national-id-encryption.util';
 
@@ -110,25 +111,42 @@ export default class UserService {
     };
   }
 
-  public getAllUsers(branchId?: string) {
+  public getAllUsers(branchId?: string, includeNationalIdRevealId = false) {
     try {
-      return this.userRepository.getAllUsers(branchId);
+      return this.userRepository.getAllUsers(
+        branchId,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllTrainees(branchId?: string, includeNotes = false) {
+  public getAllTrainees(
+    branchId?: string,
+    includeNotes = false,
+    includeNationalIdRevealId = false,
+  ) {
     try {
-      return this.userRepository.getAllTrainees(branchId, includeNotes);
+      return this.userRepository.getAllTrainees(
+        branchId,
+        includeNotes,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllVolunteers(branchId?: string) {
+  public getAllVolunteers(
+    branchId?: string,
+    includeNationalIdRevealId = false,
+  ) {
     try {
-      return this.userRepository.getAllVolunteers(branchId);
+      return this.userRepository.getAllVolunteers(
+        branchId,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
@@ -156,6 +174,55 @@ export default class UserService {
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
+  }
+
+  public async getNationalIdByUuid(uuidId: string) {
+    try {
+      const user =
+        await this.userRepository.findByUuidForNationalIdReveal(uuidId);
+
+      if (!user?.nationalIdEncrypted) {
+        throw new NotFoundException('National ID not found');
+      }
+
+      return {
+        nationalId: decryptNationalId(user.nationalIdEncrypted),
+      };
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException('Unable to reveal national ID');
+    }
+  }
+
+  public async resolveLegacyUserId(publicUserId: string) {
+    try {
+      const user = await this.userRepository.findLegacyIdByUuid(publicUserId);
+
+      if (!user) {
+        throw new NotFoundException('User not found');
+      }
+
+      return user.id;
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException('Failed to resolve user');
+    }
+  }
+
+  public async resolveLegacyUserIds(publicUserIds: string[]) {
+    const resolvedIds = await Promise.all(
+      publicUserIds.map((publicUserId) =>
+        this.resolveLegacyUserId(publicUserId),
+      ),
+    );
+
+    return resolvedIds;
   }
 
   public async getCurrentUserProfile(userId: string) {
