@@ -46,32 +46,28 @@ export default class MentorAssignmentController {
   @Post('assign')
   async assignTrainee(@Body() dto: CreateMentorAssignmentDto, @Req() req: any) {
     this.authorizationService.assertAdminForBranch(req.user, dto.branchId);
-    const [legacyMentorId, legacyTraineeId] = await Promise.all([
-      this.mentorAssignmentService.resolveLegacyUserId(dto.mentorId),
-      this.mentorAssignmentService.resolveLegacyUserId(dto.traineeId),
-    ]);
     await Promise.all([
       this.authorizationService.assertUserBelongsToBranch(
-        legacyMentorId,
+        dto.mentorId,
         dto.branchId,
       ),
       this.authorizationService.assertUserBelongsToBranch(
-        legacyTraineeId,
+        dto.traineeId,
         dto.branchId,
       ),
       this.authorizationService.assertUserHasRole(
-        legacyMentorId,
+        dto.mentorId,
         AUTH_ROLES.VOLUNTEER.id,
       ),
       this.authorizationService.assertUserHasRole(
-        legacyTraineeId,
+        dto.traineeId,
         AUTH_ROLES.TRAINEE.id,
       ),
     ]);
 
     return this.mentorAssignmentService.assignTrainee(
-      legacyMentorId,
-      legacyTraineeId,
+      dto.mentorId,
+      dto.traineeId,
       dto.branchId,
     );
   }
@@ -92,19 +88,17 @@ export default class MentorAssignmentController {
       req.user,
       id,
     );
-    const legacyNewMentorId =
-      await this.mentorAssignmentService.resolveLegacyUserId(dto.newMentorId);
     await Promise.all([
       this.authorizationService.assertUserBelongsToBranch(
-        legacyNewMentorId,
+        dto.newMentorId,
         branchId,
       ),
       this.authorizationService.assertUserHasRole(
-        legacyNewMentorId,
+        dto.newMentorId,
         AUTH_ROLES.VOLUNTEER.id,
       ),
     ]);
 
-    return this.mentorAssignmentService.transferTrainee(id, legacyNewMentorId);
+    return this.mentorAssignmentService.transferTrainee(id, dto.newMentorId);
   }
 }

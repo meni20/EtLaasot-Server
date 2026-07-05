@@ -31,18 +31,12 @@ export default class MentorAssignment extends Model {
   declare id: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare mentorId: string;
 
-  @Column({ field: 'mentor_uuid', type: DataType.UUID, allowNull: true })
-  declare mentorUuid: string | null;
-
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare traineeId: string;
-
-  @Column({ field: 'trainee_uuid', type: DataType.UUID, allowNull: true })
-  declare traineeUuid: string | null;
 
   @ForeignKey(() => Branch)
   @Column(DataType.STRING(50))
@@ -67,31 +61,6 @@ export default class MentorAssignment extends Model {
   declare branch: Branch;
 
   toJSON() {
-    const values = { ...super.toJSON() } as Record<string, unknown>;
-    const safeMentorId = this.getDataValue('mentorUuid') as
-      | string
-      | null
-      | undefined;
-    const safeTraineeId = this.getDataValue('traineeUuid') as
-      | string
-      | null
-      | undefined;
-
-    if (safeMentorId) {
-      values.mentorId = safeMentorId;
-    } else {
-      delete values.mentorId;
-    }
-
-    if (safeTraineeId) {
-      values.traineeId = safeTraineeId;
-    } else {
-      delete values.traineeId;
-    }
-
-    delete values.mentorUuid;
-    delete values.traineeUuid;
-
-    return values;
+    return { ...super.toJSON() };
   }
 }

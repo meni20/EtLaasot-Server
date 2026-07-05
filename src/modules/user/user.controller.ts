@@ -131,20 +131,15 @@ export default class UserController {
     @Body() userData: UpdateUserDto,
     @Req() req: any,
   ) {
-    const legacyUserId = await this.userService.resolveLegacyUserId(userId);
-    await this.authorizationService.assertAdminForUser(req.user, legacyUserId);
-    return this.userService.updateUserDetails(legacyUserId, userData);
+    await this.authorizationService.assertAdminForUser(req.user, userId);
+    return this.userService.updateUserDetails(userId, userData);
   }
 
   @Get(':userId')
   public async getUser(@Param('userId') userId: string, @Req() req: any) {
-    const legacyUserId = await this.userService.resolveLegacyUserId(userId);
-    await this.authorizationService.assertSelfOrAdminForUser(
-      req.user,
-      legacyUserId,
-    );
+    await this.authorizationService.assertSelfOrAdminForUser(req.user, userId);
     const includeNotes =
-      legacyUserId !== this.authorizationService.getActorId(req.user);
-    return this.userService.findById(legacyUserId, includeNotes);
+      userId !== this.authorizationService.getActorId(req.user);
+    return this.userService.findById(userId, includeNotes);
   }
 }

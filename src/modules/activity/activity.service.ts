@@ -54,9 +54,7 @@ export default class ActivityService {
   ) {
     this.ensureVolunteerAccess(authUser);
     const eventId = dto.eventId.trim();
-    const traineeId = await this.userService.resolveLegacyUserId(
-      dto.traineeId.trim(),
-    );
+    const traineeId = dto.traineeId.trim();
 
     const existingActivity =
       await this.activityRepository.findActiveByVolunteer(authUser.userId);
@@ -250,10 +248,10 @@ export default class ActivityService {
           ? undefined
           : branchIds,
       volunteerId: query.volunteerId?.trim()
-        ? await this.userService.resolveLegacyUserId(query.volunteerId.trim())
+        ? query.volunteerId.trim()
         : undefined,
       traineeId: query.traineeId?.trim()
-        ? await this.userService.resolveLegacyUserId(query.traineeId.trim())
+        ? query.traineeId.trim()
         : undefined,
       eventId: query.eventId?.trim() || undefined,
       status: query.status,
@@ -316,9 +314,7 @@ export default class ActivityService {
     volunteerId: string,
   ) {
     const normalizedEventId = eventId.trim();
-    const normalizedVolunteerId = await this.userService.resolveLegacyUserId(
-      volunteerId.trim(),
-    );
+    const normalizedVolunteerId = volunteerId.trim();
     await this.ensureAdminAccessToEvent(authUser, normalizedEventId);
     await this.activityRepository.removeVolunteerAttendanceForEvent(
       normalizedEventId,

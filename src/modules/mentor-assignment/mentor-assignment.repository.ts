@@ -36,14 +36,13 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'mentor',
-          attributes: ['id', 'uuidId', 'name', 'phoneNumber', 'email'],
+          attributes: ['id', 'name', 'phoneNumber', 'email'],
         },
         {
           model: User,
           as: 'trainee',
           attributes: [
             'id',
-            'uuidId',
             'name',
             'phoneNumber',
             'email',
@@ -64,7 +63,6 @@ export default class MentorAssignmentRepository {
           as: 'trainee',
           attributes: [
             'id',
-            'uuidId',
             'name',
             'phoneNumber',
             'email',

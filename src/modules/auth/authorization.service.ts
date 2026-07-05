@@ -189,9 +189,8 @@ export class AuthorizationService {
   }
 
   async assertAdminForUserUuid(user: AuthUser, targetUserUuid: string) {
-    const targetUser = await User.findOne({
-      where: { uuidId: targetUserUuid },
-      attributes: ['id', 'uuidId', 'branchId'],
+    const targetUser = await User.findByPk(targetUserUuid, {
+      attributes: ['id', 'branchId'],
       include: [{ model: UserRole, attributes: ['roleId', 'resourceId'] }],
     });
 

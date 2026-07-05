@@ -10,6 +10,7 @@ import {
 import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
+import { randomUUID } from 'crypto';
 import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import {
   assertNationalIdHashSecretConfigured,
@@ -93,7 +94,7 @@ export default class UserService {
   ): IUser {
     return {
       ...userData,
-      id: nationalIdDetails.normalizedNationalId,
+      id: randomUUID(),
       nationalIdHash: nationalIdDetails.nationalIdHash,
       nationalIdLast4: nationalIdDetails.nationalIdLast4,
       nationalIdEncrypted: encryptNationalId(
@@ -179,7 +180,7 @@ export default class UserService {
   public async getNationalIdByUuid(uuidId: string) {
     try {
       const user =
-        await this.userRepository.findByUuidForNationalIdReveal(uuidId);
+        await this.userRepository.findByIdForNationalIdReveal(uuidId);
 
       if (!user?.nationalIdEncrypted) {
         throw new NotFoundException('National ID not found');
@@ -195,34 +196,6 @@ export default class UserService {
 
       throw new InternalServerErrorException('Unable to reveal national ID');
     }
-  }
-
-  public async resolveLegacyUserId(publicUserId: string) {
-    try {
-      const user = await this.userRepository.findLegacyIdByUuid(publicUserId);
-
-      if (!user) {
-        throw new NotFoundException('User not found');
-      }
-
-      return user.id;
-    } catch (err) {
-      if (err instanceof NotFoundException) {
-        throw err;
-      }
-
-      throw new InternalServerErrorException('Failed to resolve user');
-    }
-  }
-
-  public async resolveLegacyUserIds(publicUserIds: string[]) {
-    const resolvedIds = await Promise.all(
-      publicUserIds.map((publicUserId) =>
-        this.resolveLegacyUserId(publicUserId),
-      ),
-    );
-
-    return resolvedIds;
   }
 
   public async getCurrentUserProfile(userId: string) {

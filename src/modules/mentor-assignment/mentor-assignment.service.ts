@@ -6,14 +6,12 @@ import {
 } from '@nestjs/common';
 import MentorAssignmentRepository from './mentor-assignment.repository';
 import { Sequelize } from 'sequelize-typescript';
-import UserService from '../user/user.service';
 
 @Injectable()
 export default class MentorAssignmentService {
   constructor(
     private readonly sequelize: Sequelize,
     private readonly mentorAssignmentRepository: MentorAssignmentRepository,
-    private readonly userService: UserService,
   ) {}
 
   public async assignTrainee(
@@ -117,10 +115,6 @@ export default class MentorAssignmentService {
         'Failed to fetch unassigned trainees',
       );
     }
-  }
-
-  public resolveLegacyUserId(publicUserId: string) {
-    return this.userService.resolveLegacyUserId(publicUserId);
   }
 
   private toSafeAssignment(assignment: any) {

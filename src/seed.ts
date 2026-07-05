@@ -7,6 +7,7 @@ import Branch from './modules/branch/entities/branch.entity';
 import { AUTH_ROLES, BRANCHES } from './constants/auth.constants';
 import { getNationalIdDetails } from './modules/user/national-id.util';
 import { encryptNationalId } from './modules/user/national-id-encryption.util';
+import { randomUUID } from 'crypto';
 
 async function seed() {
   const app = await NestFactory.createApplicationContext(AppModule);
@@ -51,7 +52,7 @@ async function seed() {
   const [adminUser] = await User.findOrCreate({
     where: { nationalIdHash: adminNationalId.nationalIdHash },
     defaults: {
-      id: adminNationalId.normalizedNationalId,
+      id: randomUUID(),
       nationalIdHash: adminNationalId.nationalIdHash,
       nationalIdLast4: adminNationalId.nationalIdLast4,
       nationalIdEncrypted: encryptNationalId(

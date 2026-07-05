@@ -22,7 +22,7 @@ export default class UserRepository {
 
     if (includeNationalIdRevealId && !Array.isArray(safeAttributes)) {
       safeAttributes.include = [
-        [col('uuid_id'), 'nationalIdRevealId'] as unknown as string,
+        [col('User.id'), 'nationalIdRevealId'] as unknown as string,
       ];
     }
 
@@ -114,30 +114,16 @@ export default class UserRepository {
     });
   }
 
-  public async findByIdentifyId(identifyId: string) {
-    return await User.findOne({
-      where: { id: identifyId },
-      attributes: this.getSafeAttributes(),
-    });
-  }
-
   public async findByNationalIdHash(nationalIdHash: string) {
     return await User.findOne({
       where: { nationalIdHash },
     });
   }
 
-  public async findByUuidForNationalIdReveal(uuidId: string) {
+  public async findByIdForNationalIdReveal(id: string) {
     return await User.findOne({
-      where: { uuidId },
-      attributes: ['uuidId', 'nationalIdEncrypted'],
-    });
-  }
-
-  public async findLegacyIdByUuid(uuidId: string) {
-    return await User.findOne({
-      where: { uuidId },
-      attributes: ['id', 'uuidId'],
+      where: { id },
+      attributes: ['id', 'nationalIdEncrypted'],
     });
   }
 

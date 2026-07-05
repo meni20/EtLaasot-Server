@@ -46,9 +46,7 @@ export default class AttendeeRepository {
 
       await existing.update({ rsvpStatus, rsvpDate: new Date() });
       return existing.reload({
-        include: [
-          { model: User, attributes: ['id', 'uuidId', 'name', 'email'] },
-        ],
+        include: [{ model: User, attributes: ['id', 'name', 'email'] }],
       });
     }
     const attendee = await Attendee.create({
@@ -58,7 +56,7 @@ export default class AttendeeRepository {
       rsvpDate: new Date(),
     });
     return attendee.reload({
-      include: [{ model: User, attributes: ['id', 'uuidId', 'name', 'email'] }],
+      include: [{ model: User, attributes: ['id', 'name', 'email'] }],
     });
   }
 
@@ -68,14 +66,7 @@ export default class AttendeeRepository {
       include: [
         {
           model: User,
-          attributes: [
-            'id',
-            'uuidId',
-            'name',
-            'email',
-            'phoneNumber',
-            'branchId',
-          ],
+          attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
           include: [{ model: UserRole }],
         },
       ],
@@ -85,7 +76,7 @@ export default class AttendeeRepository {
 
   public async findById(attendeeId: string) {
     return Attendee.findByPk(attendeeId, {
-      include: [{ model: User, attributes: ['id', 'uuidId', 'name', 'email'] }],
+      include: [{ model: User, attributes: ['id', 'name', 'email'] }],
     });
   }
 
@@ -190,14 +181,7 @@ export default class AttendeeRepository {
         include: [
           {
             model: User,
-            attributes: [
-              'id',
-              'uuidId',
-              'name',
-              'email',
-              'phoneNumber',
-              'branchId',
-            ],
+            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
             include: [{ model: UserRole }],
           },
         ],
@@ -210,26 +194,12 @@ export default class AttendeeRepository {
           {
             model: User,
             as: 'mentor',
-            attributes: [
-              'id',
-              'uuidId',
-              'name',
-              'email',
-              'phoneNumber',
-              'branchId',
-            ],
+            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
           },
           {
             model: User,
             as: 'trainee',
-            attributes: [
-              'id',
-              'uuidId',
-              'name',
-              'email',
-              'phoneNumber',
-              'branchId',
-            ],
+            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
           },
         ],
         order: [['createdAt', 'ASC']],

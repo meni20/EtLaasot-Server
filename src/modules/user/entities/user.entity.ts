@@ -6,6 +6,7 @@ import {
   DataType,
   AllowNull,
   PrimaryKey,
+  Default,
   ForeignKey,
   BelongsTo,
   BelongsToMany,
@@ -26,12 +27,9 @@ import { maskNationalIdLast4 } from '../national-id.util';
 })
 export default class User extends Model<IUser> {
   @PrimaryKey
-  @Column(DataType.STRING)
+  @Default(DataType.UUIDV4)
+  @Column(DataType.UUID)
   declare id: string;
-
-  @AllowNull
-  @Column({ field: 'uuid_id', type: DataType.UUID })
-  declare uuidId: string | null;
 
   @Column({ field: 'national_id_hash', type: DataType.STRING(64) })
   declare nationalIdHash: string;
@@ -117,15 +115,8 @@ export default class User extends Model<IUser> {
 
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
-    const safeUserId = this.getDataValue('uuidId') as string | null | undefined;
 
-    if (safeUserId) {
-      values.id = safeUserId;
-    } else {
-      delete values.id;
-    }
-
-    delete values.uuidId;
+    delete values.legacyNationalId;
     delete values.nationalIdHash;
     delete values.nationalIdEncrypted;
 

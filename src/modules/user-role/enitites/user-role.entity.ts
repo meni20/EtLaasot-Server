@@ -19,19 +19,14 @@ import Role from 'src/modules/roles/enitites/roles.entity';
 export default class UserRole extends Model {
   @PrimaryKey
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare userId: string;
-
-  @AllowNull
-  @Column({ field: 'user_uuid', type: DataType.UUID })
-  declare userUuid: string | null;
 
   @PrimaryKey
   @ForeignKey(() => Role)
   @Column(DataType.INTEGER)
   declare roleId: number;
 
-  @PrimaryKey
   @Column(DataType.STRING(50))
   declare resourceId: string;
 
@@ -46,20 +41,6 @@ export default class UserRole extends Model {
   declare user: User;
 
   toJSON() {
-    const values = { ...super.toJSON() } as Record<string, unknown>;
-    const safeUserId = this.getDataValue('userUuid') as
-      | string
-      | null
-      | undefined;
-
-    if (safeUserId) {
-      values.userId = safeUserId;
-    } else {
-      delete values.userId;
-    }
-
-    delete values.userUuid;
-
-    return values;
+    return { ...super.toJSON() };
   }
 }

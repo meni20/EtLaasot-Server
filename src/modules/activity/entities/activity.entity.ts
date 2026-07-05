@@ -43,20 +43,12 @@ export default class VolunteerActivity extends Model<IVolunteerActivity> {
   declare id: string;
 
   @ForeignKey(() => User)
-  @Column({ field: 'volunteer_id', type: DataType.STRING })
+  @Column({ field: 'volunteer_id', type: DataType.UUID })
   declare volunteerId: string;
 
-  @AllowNull
-  @Column({ field: 'volunteer_uuid', type: DataType.UUID })
-  declare volunteerUuid: string | null;
-
   @ForeignKey(() => User)
-  @Column({ field: 'trainee_id', type: DataType.STRING })
+  @Column({ field: 'trainee_id', type: DataType.UUID })
   declare traineeId: string;
-
-  @AllowNull
-  @Column({ field: 'trainee_uuid', type: DataType.UUID })
-  declare traineeUuid: string | null;
 
   @ForeignKey(() => Event)
   @Column({ field: 'event_id', type: DataType.UUID })
@@ -97,31 +89,6 @@ export default class VolunteerActivity extends Model<IVolunteerActivity> {
   declare branch: Branch;
 
   toJSON() {
-    const values = { ...super.toJSON() } as Record<string, unknown>;
-    const safeVolunteerId = this.getDataValue('volunteerUuid') as
-      | string
-      | null
-      | undefined;
-    const safeTraineeId = this.getDataValue('traineeUuid') as
-      | string
-      | null
-      | undefined;
-
-    if (safeVolunteerId) {
-      values.volunteerId = safeVolunteerId;
-    } else {
-      delete values.volunteerId;
-    }
-
-    if (safeTraineeId) {
-      values.traineeId = safeTraineeId;
-    } else {
-      delete values.traineeId;
-    }
-
-    delete values.volunteerUuid;
-    delete values.traineeUuid;
-
-    return values;
+    return { ...super.toJSON() };
   }
 }
