@@ -42,6 +42,30 @@ export default class User extends Model<IUser> {
   @Column({ field: 'national_id_encrypted', type: DataType.TEXT })
   declare nationalIdEncrypted: string | null;
 
+  @AllowNull
+  @Column({ field: 'password_hash', type: DataType.TEXT })
+  declare passwordHash: string | null;
+
+  @AllowNull
+  @Column({ field: 'password_changed_at', type: DataType.DATE })
+  declare passwordChangedAt: Date | null;
+
+  @Default(false)
+  @Column({ field: 'must_change_password', type: DataType.BOOLEAN })
+  declare mustChangePassword: boolean;
+
+  @Default(0)
+  @Column({ field: 'failed_login_attempts', type: DataType.INTEGER })
+  declare failedLoginAttempts: number;
+
+  @AllowNull
+  @Column({ field: 'locked_until', type: DataType.DATE })
+  declare lockedUntil: Date | null;
+
+  @AllowNull
+  @Column({ field: 'temporary_password_expires_at', type: DataType.DATE })
+  declare temporaryPasswordExpiresAt: Date | null;
+
   @Column(DataType.STRING)
   declare name: string;
 
@@ -119,6 +143,12 @@ export default class User extends Model<IUser> {
     delete values.legacyNationalId;
     delete values.nationalIdHash;
     delete values.nationalIdEncrypted;
+    delete values.passwordHash;
+    delete values.passwordChangedAt;
+    delete values.mustChangePassword;
+    delete values.failedLoginAttempts;
+    delete values.lockedUntil;
+    delete values.temporaryPasswordExpiresAt;
 
     values.nationalIdMasked = maskNationalIdLast4(
       values.nationalIdLast4 as string | null | undefined,

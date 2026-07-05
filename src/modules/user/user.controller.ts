@@ -125,6 +125,12 @@ export default class UserController {
     return this.userService.getNationalIdByUuid(userUuid);
   }
 
+  @Patch(':userId/password-reset')
+  public async resetPassword(@Param('userId') userId: string, @Req() req: any) {
+    await this.authorizationService.assertAdminForUser(req.user, userId);
+    return this.userService.resetPassword(userId);
+  }
+
   @Patch(':userId')
   public async updateUser(
     @Param('userId') userId: string,

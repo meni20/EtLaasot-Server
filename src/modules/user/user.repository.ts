@@ -16,6 +16,12 @@ export default class UserRepository {
       exclude: [
         'nationalIdHash',
         'nationalIdEncrypted',
+        'passwordHash',
+        'passwordChangedAt',
+        'mustChangePassword',
+        'failedLoginAttempts',
+        'lockedUntil',
+        'temporaryPasswordExpiresAt',
         ...(includeNotes ? [] : ['notes', 'parentName']),
       ],
     };
@@ -118,6 +124,88 @@ export default class UserRepository {
     return await User.findOne({
       where: { nationalIdHash },
     });
+  }
+
+  public async findByNationalIdHashForAuth(nationalIdHash: string) {
+    return await User.findOne({
+      where: { nationalIdHash },
+      attributes: [
+        'id',
+        'name',
+        'nationalIdHash',
+        'passwordHash',
+        'mustChangePassword',
+        'failedLoginAttempts',
+        'lockedUntil',
+        'temporaryPasswordExpiresAt',
+      ],
+    });
+  }
+
+  public async findByIdForAuth(id: string) {
+    return await User.findByPk(id, {
+      attributes: [
+        'id',
+        'name',
+        'passwordHash',
+        'mustChangePassword',
+        'failedLoginAttempts',
+        'lockedUntil',
+        'temporaryPasswordExpiresAt',
+      ],
+    });
+  }
+
+  public async findUsersWithoutPasswordHash() {
+    return await User.findAll({
+      where: { passwordHash: null },
+      attributes: [
+        'id',
+        'name',
+        'nationalIdEncrypted',
+        'passwordHash',
+        'mustChangePassword',
+      ],
+      order: [['name', 'ASC']],
+    });
+  }
+
+  public async updatePasswordAuthState(
+    id: string,
+    data: {
+      passwordHash: string;
+      passwordChangedAt?: Date | null;
+      mustChangePassword: boolean;
+      temporaryPasswordExpiresAt?: Date | null;
+      failedLoginAttempts?: number;
+      lockedUntil?: Date | null;
+    },
+    transaction?: Transaction,
+  ) {
+    const [affectedCount] = await User.update(data, {
+      where: { id },
+      transaction,
+    });
+
+    return affectedCount > 0;
+  }
+
+  public async registerFailedLogin(
+    id: string,
+    failedLoginAttempts: number,
+    lockedUntil: Date | null,
+  ) {
+    await User.update(
+      { failedLoginAttempts, lockedUntil },
+      { where: { id } },
+    );
+  }
+
+  public async clearLoginFailures(id: string) {
+    await User.update(
+      { failedLoginAttempts: 0, lockedUntil: null },
+      { where: { id } },
+    );
   }
 
   public async findByIdForNationalIdReveal(id: string) {

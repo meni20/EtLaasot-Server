@@ -13,6 +13,11 @@ import { Sequelize } from 'sequelize-typescript';
 import { randomUUID } from 'crypto';
 import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import {
+  generateTemporaryPassword,
+  getTemporaryPasswordExpiry,
+  hashPassword,
+} from '../auth/password.util';
+import {
   assertNationalIdHashSecretConfigured,
   getNationalIdDetails,
   maskNationalIdLast4,
@@ -38,11 +43,17 @@ export default class UserService {
     this.validateDateOfBirth(userData.dateOfBirth, true);
     const nationalIdDetails = getNationalIdDetails(userData.id);
     await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
     try {
-      return await this.sequelize.transaction(async (transaction) => {
+      const user = await this.sequelize.transaction(async (transaction) => {
         const user = await this.userRepository.create(
-          this.normalizeCreateUserData(userData, nationalIdDetails),
+          this.normalizeCreateUserData(userData, nationalIdDetails, {
+            passwordHash,
+            temporaryPasswordExpiresAt,
+          }),
           transaction,
         );
 
@@ -56,6 +67,12 @@ export default class UserService {
 
         return user;
       });
+
+      return {
+        user,
+        temporaryPassword,
+        temporaryPasswordExpiresAt,
+      };
     } catch (err) {
       this.throwConflictForDuplicateNationalId(err);
       throw err;
@@ -66,11 +83,17 @@ export default class UserService {
     this.validateDateOfBirth(userData.dateOfBirth, true);
     const nationalIdDetails = getNationalIdDetails(userData.id);
     await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
     try {
-      return await this.sequelize.transaction(async (transaction) => {
+      const user = await this.sequelize.transaction(async (transaction) => {
         const user = await this.userRepository.create(
-          this.normalizeCreateUserData(userData, nationalIdDetails),
+          this.normalizeCreateUserData(userData, nationalIdDetails, {
+            passwordHash,
+            temporaryPasswordExpiresAt,
+          }),
           transaction,
         );
         await this.userRoleService.asignRoleToUser(
@@ -82,6 +105,12 @@ export default class UserService {
         );
         return user;
       });
+
+      return {
+        user,
+        temporaryPassword,
+        temporaryPasswordExpiresAt,
+      };
     } catch (err) {
       this.throwConflictForDuplicateNationalId(err);
       throw err;
@@ -91,6 +120,10 @@ export default class UserService {
   private normalizeCreateUserData(
     userData: IUser,
     nationalIdDetails: ReturnType<typeof getNationalIdDetails>,
+    authData?: {
+      passwordHash?: string;
+      temporaryPasswordExpiresAt?: Date;
+    },
   ): IUser {
     return {
       ...userData,
@@ -100,6 +133,13 @@ export default class UserService {
       nationalIdEncrypted: encryptNationalId(
         nationalIdDetails.normalizedNationalId,
       ),
+      passwordHash: authData?.passwordHash ?? null,
+      passwordChangedAt: null,
+      mustChangePassword: Boolean(authData?.passwordHash),
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      temporaryPasswordExpiresAt:
+        authData?.temporaryPasswordExpiresAt ?? null,
       email: userData.email?.trim() || null,
       dateOfBirth: userData.dateOfBirth ?? null,
       shirtSize: userData.shirtSize ?? null,
@@ -175,6 +215,78 @@ export default class UserService {
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
+  }
+
+  public findByNationalIdHashForAuth(nationalIdHash: string) {
+    try {
+      return this.userRepository.findByNationalIdHashForAuth(nationalIdHash);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findByIdForAuth(userId: string) {
+    try {
+      return this.userRepository.findByIdForAuth(userId);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public registerFailedLogin(
+    userId: string,
+    failedLoginAttempts: number,
+    lockedUntil: Date | null,
+  ) {
+    return this.userRepository.registerFailedLogin(
+      userId,
+      failedLoginAttempts,
+      lockedUntil,
+    );
+  }
+
+  public clearLoginFailures(userId: string) {
+    return this.userRepository.clearLoginFailures(userId);
+  }
+
+  public async updatePassword(
+    userId: string,
+    passwordHash: string,
+    mustChangePassword: boolean,
+    temporaryPasswordExpiresAt: Date | null,
+    passwordChangedAt: Date | null = new Date(),
+  ) {
+    const updated = await this.userRepository.updatePasswordAuthState(userId, {
+      passwordHash,
+      passwordChangedAt,
+      mustChangePassword,
+      temporaryPasswordExpiresAt,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    });
+
+    if (!updated) {
+      throw new NotFoundException('User not found');
+    }
+  }
+
+  public async resetPassword(userId: string) {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
+
+    await this.updatePassword(
+      userId,
+      passwordHash,
+      true,
+      temporaryPasswordExpiresAt,
+      null,
+    );
+
+    return {
+      temporaryPassword,
+      temporaryPasswordExpiresAt,
+    };
   }
 
   public async getNationalIdByUuid(uuidId: string) {

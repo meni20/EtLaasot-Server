@@ -21,6 +21,7 @@ export type AuthUser = {
   sub?: string;
   roles?: AuthRole[];
   activeBranch?: string;
+  mustChangePassword?: boolean;
 };
 
 @Injectable()

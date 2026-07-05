@@ -3,36 +3,31 @@ import UserService from '../user/user.service';
 import BranchService from '../branch/branch.service';
 import UserRoleService from '../user-role/user-role.service';
 import { ROLE_ID_TO_NAME } from 'src/constants/auth.constants';
-import { Injectable, Logger, UnauthorizedException } from '@nestjs/common';
-import { timingSafeEqual } from 'crypto';
-import axios from 'axios';
 import {
-  getIntegerEnv,
-  getOptionalEnv,
-  getRequiredEnv,
-} from 'src/config/env.util';
+  BadRequestException,
+  Injectable,
+  Logger,
+  UnauthorizedException,
+} from '@nestjs/common';
+import axios from 'axios';
+import { getIntegerEnv, getOptionalEnv } from 'src/config/env.util';
 import {
   assertNationalIdHashSecretConfigured,
   getNationalIdDetails,
   maskNationalIdLast4,
 } from '../user/national-id.util';
-
-type LoginAttempt = {
-  failedCount: number;
-  lockedUntil: number;
-};
+import {
+  hashPassword,
+  validateNewPassword,
+  verifyPassword,
+} from './password.util';
 
 @Injectable()
 export default class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly loginAttempts = new Map<string, LoginAttempt>();
   private readonly maxLoginAttempts = getIntegerEnv('AUTH_MAX_ATTEMPTS', 5);
   private readonly lockoutMs =
     getIntegerEnv('AUTH_LOCKOUT_SECONDS', 300) * 1000;
-  private readonly maxLoginAttemptRecords = getIntegerEnv(
-    'AUTH_MAX_ATTEMPT_RECORDS',
-    5000,
-  );
 
   constructor(
     private readonly userRoleService: UserRoleService,
@@ -43,34 +38,43 @@ export default class AuthService {
     assertNationalIdHashSecretConfigured();
   }
 
-  async login(nationalId: string, loginCode: string, recaptchaToken?: string) {
-    const nationalIdDetails = getNationalIdDetails(nationalId);
-    const attemptKey = nationalIdDetails.nationalIdHash;
+  async login(identifier: string, password: string, recaptchaToken?: string) {
+    const nationalIdHash = this.getLoginNationalIdHash(identifier);
+    const user =
+      await this.userService.findByNationalIdHashForAuth(nationalIdHash);
 
-    this.assertLoginAllowed(attemptKey);
-    await this.verifyRecaptchaIfConfigured(attemptKey, recaptchaToken);
-    this.verifyLoginCode(attemptKey, loginCode);
+    if (user) {
+      await this.assertLoginAllowed(user);
+    }
 
-    const user = await this.userService.findByNationalIdHash(
-      nationalIdDetails.nationalIdHash,
-    );
+    await this.verifyRecaptchaIfConfigured(user, recaptchaToken);
 
     if (!user) {
-      this.registerFailedLogin(attemptKey);
       this.logger.warn('Login denied: invalid credentials');
-      throw new UnauthorizedException('invalid credentials');
+      throw this.invalidCredentials();
+    }
+
+    const passwordMatches =
+      !!user.passwordHash && (await verifyPassword(user.passwordHash, password));
+
+    if (
+      !passwordMatches ||
+      this.isTemporaryPasswordExpired(user.mustChangePassword, user.temporaryPasswordExpiresAt)
+    ) {
+      await this.registerFailedLogin(user);
+      this.logger.warn('Login denied: invalid credentials');
+      throw this.invalidCredentials();
     }
 
     const userId = user.id;
     const rows = await this.userRoleService.findRolesByUserId(userId);
 
     if (!rows.length) {
-      this.registerFailedLogin(attemptKey);
-      this.logger.warn('Login denied: no permissions');
-      throw new UnauthorizedException('no permissions');
+      await this.registerFailedLogin(user);
+      this.logger.warn('Login denied: invalid credentials');
+      throw this.invalidCredentials();
     }
 
-    // Get branch info for each role
     const branches = (await this.branchService.getAllBranches()).filter(
       (branch): branch is NonNullable<typeof branch> => !!branch,
     );
@@ -84,28 +88,80 @@ export default class AuthService {
     }));
 
     const activeBranch = roles[0]?.branchId || '';
+    const mustChangePassword = Boolean(user.mustChangePassword);
 
     const payload = {
       sub: userId,
       roles,
       activeBranch,
+      mustChangePassword,
     };
 
     const token = this.jwt.sign(payload);
-    this.loginAttempts.delete(attemptKey);
+    await this.userService.clearLoginFailures(userId);
     this.logger.log('Successful login');
 
     return {
       token,
       roles,
       activeBranch,
+      mustChangePassword,
     };
   }
 
+  async changePassword(
+    userId: string,
+    currentPassword: string,
+    newPassword: string,
+    confirmPassword: string,
+  ) {
+    if (newPassword !== confirmPassword) {
+      throw new BadRequestException('Password confirmation does not match');
+    }
+
+    if (currentPassword === newPassword) {
+      throw new BadRequestException('New password must be different');
+    }
+
+    validateNewPassword(newPassword);
+
+    const user = await this.userService.findByIdForAuth(userId);
+    if (!user?.passwordHash) {
+      throw this.invalidCredentials();
+    }
+
+    await this.assertLoginAllowed(user);
+
+    if (
+      this.isTemporaryPasswordExpired(
+        user.mustChangePassword,
+        user.temporaryPasswordExpiresAt,
+      )
+    ) {
+      throw this.invalidCredentials();
+    }
+
+    const currentPasswordMatches = await verifyPassword(
+      user.passwordHash,
+      currentPassword,
+    );
+
+    if (!currentPasswordMatches) {
+      await this.registerFailedLogin(user);
+      throw this.invalidCredentials();
+    }
+
+    const passwordHash = await hashPassword(newPassword);
+    await this.userService.updatePassword(userId, passwordHash, false, null);
+
+    return { ok: true };
+  }
+
   async getMe(userId: string) {
-    const [rows, user, branches] = await Promise.all([
+    const [rows, user, authState, branches] = await Promise.all([
       this.userRoleService.findRolesByUserId(userId),
       this.userService.findById(userId),
+      this.userService.findByIdForAuth(userId),
       this.branchService.getAllBranches(),
     ]);
     const resolvedBranches = branches.filter(
@@ -133,76 +189,78 @@ export default class AuthService {
       nationalIdMasked: maskNationalIdLast4(user?.nationalIdLast4),
       roles,
       activeBranch,
+      mustChangePassword: Boolean(authState?.mustChangePassword),
     };
   }
 
-  private verifyLoginCode(attemptKey: string, loginCode: string) {
-    const expectedCode = getRequiredEnv('AUTH_LOGIN_CODE');
-    const provided = Buffer.from(loginCode);
-    const expected = Buffer.from(expectedCode);
-
-    if (
-      provided.length !== expected.length ||
-      !timingSafeEqual(provided, expected)
-    ) {
-      this.registerFailedLogin(attemptKey);
-      this.logger.warn('Failed login attempt');
-      throw new UnauthorizedException('invalid credentials');
+  private getLoginNationalIdHash(identifier: string) {
+    try {
+      return getNationalIdDetails(identifier).nationalIdHash;
+    } catch {
+      throw this.invalidCredentials();
     }
   }
 
-  private assertLoginAllowed(attemptKey: string) {
-    const attempt = this.loginAttempts.get(attemptKey);
+  private async assertLoginAllowed(user: {
+    id: string;
+    failedLoginAttempts?: number | null;
+    lockedUntil?: Date | string | null;
+  }) {
+    const lockedUntil = user.lockedUntil
+      ? new Date(user.lockedUntil).getTime()
+      : 0;
 
-    if (!attempt) {
+    if (!lockedUntil) {
       return;
     }
 
-    if (attempt.lockedUntil && attempt.lockedUntil <= Date.now()) {
-      this.loginAttempts.delete(attemptKey);
+    if (lockedUntil <= Date.now()) {
+      await this.userService.clearLoginFailures(user.id);
+      user.failedLoginAttempts = 0;
+      user.lockedUntil = null;
       return;
     }
 
-    if (!attempt.lockedUntil) {
-      return;
-    }
-
-    throw new UnauthorizedException('too many login attempts');
+    throw this.invalidCredentials();
   }
 
-  private registerFailedLogin(attemptKey: string) {
-    this.pruneLoginAttempts();
-
-    const current = this.loginAttempts.get(attemptKey) ?? {
-      failedCount: 0,
-      lockedUntil: 0,
-    };
-    const failedCount = current.failedCount + 1;
+  private async registerFailedLogin(user: {
+    id: string;
+    failedLoginAttempts?: number | null;
+    lockedUntil?: Date | string | null;
+  }) {
+    const failedLoginAttempts = Number(user.failedLoginAttempts ?? 0) + 1;
     const lockedUntil =
-      failedCount >= this.maxLoginAttempts ? Date.now() + this.lockoutMs : 0;
+      failedLoginAttempts >= this.maxLoginAttempts
+        ? new Date(Date.now() + this.lockoutMs)
+        : null;
 
-    this.loginAttempts.set(attemptKey, { failedCount, lockedUntil });
+    user.failedLoginAttempts = failedLoginAttempts;
+    user.lockedUntil = lockedUntil;
+    await this.userService.registerFailedLogin(
+      user.id,
+      failedLoginAttempts,
+      lockedUntil,
+    );
   }
 
-  private pruneLoginAttempts() {
-    if (this.loginAttempts.size < this.maxLoginAttemptRecords) {
-      return;
-    }
+  private isTemporaryPasswordExpired(
+    mustChangePassword?: boolean | null,
+    temporaryPasswordExpiresAt?: Date | string | null,
+  ) {
+    return Boolean(
+      mustChangePassword &&
+        temporaryPasswordExpiresAt &&
+        new Date(temporaryPasswordExpiresAt).getTime() <= Date.now(),
+    );
+  }
 
-    const now = Date.now();
-    for (const [attemptKey, attempt] of this.loginAttempts.entries()) {
-      if (!attempt.lockedUntil || attempt.lockedUntil <= now) {
-        this.loginAttempts.delete(attemptKey);
-      }
-
-      if (this.loginAttempts.size < this.maxLoginAttemptRecords) {
-        return;
-      }
-    }
+  private invalidCredentials() {
+    return new UnauthorizedException('invalid credentials');
   }
 
   private async verifyRecaptchaIfConfigured(
-    attemptKey: string,
+    user: { id: string; failedLoginAttempts?: number | null } | null,
     recaptchaToken?: string,
   ) {
     const secret = getOptionalEnv('RECAPTCHA_SECRET_KEY');
@@ -211,9 +269,11 @@ export default class AuthService {
     }
 
     if (!recaptchaToken) {
-      this.registerFailedLogin(attemptKey);
-      this.logger.warn('Login denied: missing recaptcha');
-      throw new UnauthorizedException('recaptcha is required');
+      if (user) {
+        await this.registerFailedLogin(user);
+      }
+      this.logger.warn('Login denied: invalid credentials');
+      throw this.invalidCredentials();
     }
 
     const body = new URLSearchParams({
@@ -226,16 +286,20 @@ export default class AuthService {
         headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
         timeout: 5000,
       })
-      .catch(() => {
-        this.registerFailedLogin(attemptKey);
-        this.logger.warn('Login denied: recaptcha error');
-        throw new UnauthorizedException('recaptcha verification failed');
+      .catch(async () => {
+        if (user) {
+          await this.registerFailedLogin(user);
+        }
+        this.logger.warn('Login denied: invalid credentials');
+        throw this.invalidCredentials();
       });
 
     if (!response.data?.success) {
-      this.registerFailedLogin(attemptKey);
-      this.logger.warn('Login denied: recaptcha failed');
-      throw new UnauthorizedException('recaptcha verification failed');
+      if (user) {
+        await this.registerFailedLogin(user);
+      }
+      this.logger.warn('Login denied: invalid credentials');
+      throw this.invalidCredentials();
     }
   }
 }

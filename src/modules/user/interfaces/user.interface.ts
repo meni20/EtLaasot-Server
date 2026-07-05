@@ -8,6 +8,12 @@ export interface IUser {
   nationalIdEncrypted?: string | null;
   nationalIdRevealId?: string | null;
   nationalIdMasked?: string | null;
+  passwordHash?: string | null;
+  passwordChangedAt?: Date | null;
+  mustChangePassword?: boolean;
+  failedLoginAttempts?: number;
+  lockedUntil?: Date | null;
+  temporaryPasswordExpiresAt?: Date | null;
   name: string;
   phoneNumber: string;
   gender?: UserGender | null;
