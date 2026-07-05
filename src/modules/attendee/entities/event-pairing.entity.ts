@@ -42,11 +42,11 @@ export default class EventPairing extends Model {
   declare eventId: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare mentorId: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare traineeId: string;
 
   @ForeignKey(() => Branch)
@@ -64,4 +64,8 @@ export default class EventPairing extends Model {
 
   @BelongsTo(() => Branch)
   declare branch: Branch;
+
+  toJSON() {
+    return { ...super.toJSON() };
+  }
 }

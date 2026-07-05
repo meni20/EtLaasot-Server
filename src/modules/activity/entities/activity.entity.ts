@@ -43,11 +43,11 @@ export default class VolunteerActivity extends Model<IVolunteerActivity> {
   declare id: string;
 
   @ForeignKey(() => User)
-  @Column({ field: 'volunteer_id', type: DataType.STRING })
+  @Column({ field: 'volunteer_id', type: DataType.UUID })
   declare volunteerId: string;
 
   @ForeignKey(() => User)
-  @Column({ field: 'trainee_id', type: DataType.STRING })
+  @Column({ field: 'trainee_id', type: DataType.UUID })
   declare traineeId: string;
 
   @ForeignKey(() => Event)
@@ -87,5 +87,8 @@ export default class VolunteerActivity extends Model<IVolunteerActivity> {
 
   @BelongsTo(() => Branch)
   declare branch: Branch;
-}
 
+  toJSON() {
+    return { ...super.toJSON() };
+  }
+}

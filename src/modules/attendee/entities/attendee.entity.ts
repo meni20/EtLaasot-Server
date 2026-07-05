@@ -37,7 +37,7 @@ export default class Attendee extends Model {
   declare eventId: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare userId: string;
 
   @Column({
@@ -59,7 +59,7 @@ export default class Attendee extends Model {
 
   @AllowNull
   @ForeignKey(() => User)
-  @Column({ field: 'checked_in_by', type: DataType.STRING })
+  @Column({ field: 'checked_in_by', type: DataType.UUID })
   declare checkedInBy: string;
 
   @AllowNull
@@ -71,4 +71,8 @@ export default class Attendee extends Model {
 
   @BelongsTo(() => User, 'userId')
   declare user: User;
+
+  toJSON() {
+    return { ...super.toJSON() };
+  }
 }

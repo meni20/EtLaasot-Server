@@ -32,7 +32,7 @@ export default class MentorAssignmentService {
           throw new ConflictException('Trainee already has an active mentor');
         }
 
-        return await this.mentorAssignmentRepository.create(
+        const assignment = await this.mentorAssignmentRepository.create(
           {
             mentorId,
             traineeId,
@@ -40,6 +40,7 @@ export default class MentorAssignmentService {
           },
           transaction,
         );
+        return this.toSafeAssignment(assignment);
       });
     } catch (error) {
       if (error instanceof ConflictException) throw error;
@@ -49,7 +50,9 @@ export default class MentorAssignmentService {
 
   public async getAssignmentsByBranch(branchId: string) {
     try {
-      return await this.mentorAssignmentRepository.findByBranch(branchId);
+      const assignments =
+        await this.mentorAssignmentRepository.findByBranch(branchId);
+      return assignments.map((assignment) => this.toSafeAssignment(assignment));
     } catch {
       throw new InternalServerErrorException('Failed to fetch assignments');
     }
@@ -57,7 +60,9 @@ export default class MentorAssignmentService {
 
   public async getMyTrainees(mentorId: string) {
     try {
-      return await this.mentorAssignmentRepository.findByMentor(mentorId);
+      const assignments =
+        await this.mentorAssignmentRepository.findByMentor(mentorId);
+      return assignments.map((assignment) => this.toSafeAssignment(assignment));
     } catch {
       throw new InternalServerErrorException('Failed to fetch trainees');
     }
@@ -68,7 +73,7 @@ export default class MentorAssignmentService {
     if (!result) {
       throw new NotFoundException(`Assignment ${id} not found`);
     }
-    return result;
+    return this.toSafeAssignment(result);
   }
 
   public async transferTrainee(assignmentId: string, newMentorId: string) {
@@ -86,7 +91,7 @@ export default class MentorAssignmentService {
         transaction,
       );
 
-      return await this.mentorAssignmentRepository.create(
+      const assignment = await this.mentorAssignmentRepository.create(
         {
           mentorId: newMentorId,
           traineeId: old.traineeId,
@@ -94,18 +99,27 @@ export default class MentorAssignmentService {
         },
         transaction,
       );
+      return this.toSafeAssignment(assignment);
     });
   }
 
   public async getUnassignedTrainees(branchId: string) {
     try {
-      return await this.mentorAssignmentRepository.getUnassignedTrainees(
-        branchId,
+      const trainees =
+        await this.mentorAssignmentRepository.getUnassignedTrainees(branchId);
+      return trainees.map((trainee) =>
+        typeof trainee.toJSON === 'function' ? trainee.toJSON() : trainee,
       );
     } catch {
       throw new InternalServerErrorException(
         'Failed to fetch unassigned trainees',
       );
     }
+  }
+
+  private toSafeAssignment(assignment: any) {
+    return typeof assignment?.toJSON === 'function'
+      ? assignment.toJSON()
+      : assignment;
   }
 }

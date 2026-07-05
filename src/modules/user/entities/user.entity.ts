@@ -6,6 +6,7 @@ import {
   DataType,
   AllowNull,
   PrimaryKey,
+  Default,
   ForeignKey,
   BelongsTo,
   BelongsToMany,
@@ -17,6 +18,7 @@ import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
 import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
 import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
+import { maskNationalIdLast4 } from '../national-id.util';
 
 @Table({
   tableName: 'user',
@@ -25,8 +27,44 @@ import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 })
 export default class User extends Model<IUser> {
   @PrimaryKey
-  @Column(DataType.STRING)
+  @Default(DataType.UUIDV4)
+  @Column(DataType.UUID)
   declare id: string;
+
+  @Column({ field: 'national_id_hash', type: DataType.STRING(64) })
+  declare nationalIdHash: string;
+
+  @AllowNull
+  @Column({ field: 'national_id_last4', type: DataType.STRING(4) })
+  declare nationalIdLast4: string | null;
+
+  @AllowNull
+  @Column({ field: 'national_id_encrypted', type: DataType.TEXT })
+  declare nationalIdEncrypted: string | null;
+
+  @AllowNull
+  @Column({ field: 'password_hash', type: DataType.TEXT })
+  declare passwordHash: string | null;
+
+  @AllowNull
+  @Column({ field: 'password_changed_at', type: DataType.DATE })
+  declare passwordChangedAt: Date | null;
+
+  @Default(false)
+  @Column({ field: 'must_change_password', type: DataType.BOOLEAN })
+  declare mustChangePassword: boolean;
+
+  @Default(0)
+  @Column({ field: 'failed_login_attempts', type: DataType.INTEGER })
+  declare failedLoginAttempts: number;
+
+  @AllowNull
+  @Column({ field: 'locked_until', type: DataType.DATE })
+  declare lockedUntil: Date | null;
+
+  @AllowNull
+  @Column({ field: 'temporary_password_expires_at', type: DataType.DATE })
+  declare temporaryPasswordExpiresAt: Date | null;
 
   @Column(DataType.STRING)
   declare name: string;
@@ -98,4 +136,24 @@ export default class User extends Model<IUser> {
 
   @HasMany(() => VolunteerActivity, 'traineeId')
   declare traineeActivities: VolunteerActivity[];
+
+  toJSON() {
+    const values = { ...super.toJSON() } as Record<string, unknown>;
+
+    delete values.legacyNationalId;
+    delete values.nationalIdHash;
+    delete values.nationalIdEncrypted;
+    delete values.passwordHash;
+    delete values.passwordChangedAt;
+    delete values.mustChangePassword;
+    delete values.failedLoginAttempts;
+    delete values.lockedUntil;
+    delete values.temporaryPasswordExpiresAt;
+
+    values.nationalIdMasked = maskNationalIdLast4(
+      values.nationalIdLast4 as string | null | undefined,
+    );
+
+    return values;
+  }
 }

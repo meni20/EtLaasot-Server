@@ -56,9 +56,8 @@ export default class ActivityService {
     const eventId = dto.eventId.trim();
     const traineeId = dto.traineeId.trim();
 
-    const existingActivity = await this.activityRepository.findActiveByVolunteer(
-      authUser.userId,
-    );
+    const existingActivity =
+      await this.activityRepository.findActiveByVolunteer(authUser.userId);
 
     if (existingActivity) {
       throw new ConflictException('Volunteer already has an active activity');
@@ -82,10 +81,16 @@ export default class ActivityService {
       throw new NotFoundException('Event not found');
     }
 
-    this.ensureUserHasRole(trainee.userRoles, AUTH_ROLES.TRAINEE.id, 'Selected user is not a trainee');
+    this.ensureUserHasRole(
+      trainee.userRoles,
+      AUTH_ROLES.TRAINEE.id,
+      'Selected user is not a trainee',
+    );
 
     const volunteerBranchId =
-      volunteer.branchId ?? authUser.activeBranch ?? this.getFirstBranchId(authUser);
+      volunteer.branchId ??
+      authUser.activeBranch ??
+      this.getFirstBranchId(authUser);
     const traineeBranchId = trainee.branchId ?? volunteerBranchId;
     const eventBranchId = event.branchId ?? volunteerBranchId;
 
@@ -141,7 +146,9 @@ export default class ActivityService {
     }
 
     if (!activity.startTime) {
-      throw new BadRequestException('Active activity is missing a valid start time');
+      throw new BadRequestException(
+        'Active activity is missing a valid start time',
+      );
     }
 
     const endTime = new Date();
@@ -204,7 +211,10 @@ export default class ActivityService {
         return sum;
       }
 
-      return sum + (calculateDurationMinutes(activity.startTime, activity.endTime) ?? 0);
+      return (
+        sum +
+        (calculateDurationMinutes(activity.startTime, activity.endTime) ?? 0)
+      );
     }, 0);
 
     return {
@@ -223,7 +233,11 @@ export default class ActivityService {
     const { isSuperAdmin, branchIds } = this.getAdminScope(authUser);
     const requestedBranchId = query.branchId?.trim() || undefined;
 
-    if (requestedBranchId && !isSuperAdmin && !branchIds.includes(requestedBranchId)) {
+    if (
+      requestedBranchId &&
+      !isSuperAdmin &&
+      !branchIds.includes(requestedBranchId)
+    ) {
       throw new ForbiddenException('You do not have access to this branch');
     }
 
@@ -233,8 +247,12 @@ export default class ActivityService {
         : isSuperAdmin
           ? undefined
           : branchIds,
-      volunteerId: query.volunteerId?.trim() || undefined,
-      traineeId: query.traineeId?.trim() || undefined,
+      volunteerId: query.volunteerId?.trim()
+        ? query.volunteerId.trim()
+        : undefined,
+      traineeId: query.traineeId?.trim()
+        ? query.traineeId.trim()
+        : undefined,
       eventId: query.eventId?.trim() || undefined,
       status: query.status,
       startDate: parseActivityDateFilter(query.startDate, 'start'),
@@ -266,18 +284,21 @@ export default class ActivityService {
   public async getEventAttendance(authUser: AuthUser, eventId: string) {
     const normalizedEventId = eventId.trim();
     await this.ensureAdminAccessToEvent(authUser, normalizedEventId);
-    const activities = await this.activityRepository.findAttendanceByEvent(
-      normalizedEventId,
-    );
-    const volunteerMap = new Map<string, { volunteerId: string; name: string }>();
+    const activities =
+      await this.activityRepository.findAttendanceByEvent(normalizedEventId);
+    const volunteerMap = new Map<
+      string,
+      { volunteerId: string; name: string }
+    >();
 
     for (const activity of activities) {
       if (!activity.volunteerId || volunteerMap.has(activity.volunteerId)) {
         continue;
       }
 
+      const plainActivity = activity.toJSON() as { volunteerId: string };
       volunteerMap.set(activity.volunteerId, {
-        volunteerId: activity.volunteerId,
+        volunteerId: plainActivity.volunteerId,
         name: activity.volunteer?.name ?? activity.volunteerId,
       });
     }
@@ -303,6 +324,7 @@ export default class ActivityService {
   }
 
   private toActivityResponse(activity: VolunteerActivity) {
+    const plainActivity = activity.toJSON() as any;
     const branch = applyBranchDisplay(activity.branch);
     const durationMinutes = calculateDurationMinutes(
       activity.startTime,
@@ -311,8 +333,8 @@ export default class ActivityService {
 
     return {
       id: activity.id,
-      volunteerId: activity.volunteerId,
-      traineeId: activity.traineeId,
+      volunteerId: plainActivity.volunteerId,
+      traineeId: plainActivity.traineeId,
       eventId: activity.eventId,
       branchId: activity.branchId,
       startTime: activity.startTime,
@@ -324,8 +346,8 @@ export default class ActivityService {
       durationMinutes,
       durationFormatted: formatDurationMinutes(durationMinutes),
       timezone: ACTIVITY_TIMEZONE,
-      volunteer: activity.volunteer,
-      trainee: activity.trainee,
+      volunteer: plainActivity.volunteer,
+      trainee: plainActivity.trainee,
       event: activity.event,
       branch,
     };
@@ -366,7 +388,11 @@ export default class ActivityService {
       throw new NotFoundException('Event not found');
     }
 
-    if (!isSuperAdmin && event.branchId && !branchIds.includes(event.branchId)) {
+    if (
+      !isSuperAdmin &&
+      event.branchId &&
+      !branchIds.includes(event.branchId)
+    ) {
       throw new ForbiddenException('You do not have access to this event');
     }
 

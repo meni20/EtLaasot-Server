@@ -19,7 +19,7 @@ import Role from 'src/modules/roles/enitites/roles.entity';
 export default class UserRole extends Model {
   @PrimaryKey
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare userId: string;
 
   @PrimaryKey
@@ -27,7 +27,6 @@ export default class UserRole extends Model {
   @Column(DataType.INTEGER)
   declare roleId: number;
 
-  @PrimaryKey
   @Column(DataType.STRING(50))
   declare resourceId: string;
 
@@ -40,4 +39,8 @@ export default class UserRole extends Model {
 
   @BelongsTo(() => User)
   declare user: User;
+
+  toJSON() {
+    return { ...super.toJSON() };
+  }
 }

@@ -80,10 +80,7 @@ export default class AttendeeRepository {
     });
   }
 
-  public async updateRsvp(
-    attendeeId: string,
-    rsvpStatus: AttendeeRsvpStatus,
-  ) {
+  public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
     return Attendee.update(
       { rsvpStatus, rsvpDate: new Date() },
       { where: { id: attendeeId } },
@@ -151,7 +148,11 @@ export default class AttendeeRepository {
     branchId: string,
     transaction: Transaction,
   ) {
-    await this.removePairingsForUsers(eventId, [mentorId, traineeId], transaction);
+    await this.removePairingsForUsers(
+      eventId,
+      [mentorId, traineeId],
+      transaction,
+    );
     return EventPairing.create(
       { eventId, mentorId, traineeId, branchId },
       { transaction },

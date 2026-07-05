@@ -2,6 +2,7 @@ import UserRepository from './user.repository';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import {
   BadRequestException,
+  ConflictException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
@@ -9,7 +10,23 @@ import {
 import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
+import { randomUUID } from 'crypto';
 import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
+import {
+  generateTemporaryPassword,
+  getTemporaryPasswordExpiry,
+  hashPassword,
+} from '../auth/password.util';
+import {
+  assertNationalIdHashSecretConfigured,
+  getNationalIdDetails,
+  maskNationalIdLast4,
+} from './national-id.util';
+import {
+  assertNationalIdEncryptionKeyConfigured,
+  decryptNationalId,
+  encryptNationalId,
+} from './national-id-encryption.util';
 
 @Injectable()
 export default class UserService {
@@ -17,51 +34,112 @@ export default class UserService {
     private readonly sequelize: Sequelize,
     private readonly userRepository: UserRepository,
     private readonly userRoleService: UserRoleService,
-  ) {}
+  ) {
+    assertNationalIdHashSecretConfigured();
+    assertNationalIdEncryptionKeyConfigured();
+  }
 
   async createUserWithRole(userData: IUser) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
+    const nationalIdDetails = getNationalIdDetails(userData.id);
+    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
-    return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(
-        this.normalizeCreateUserData(userData),
-        transaction,
-      );
+    try {
+      const user = await this.sequelize.transaction(async (transaction) => {
+        const user = await this.userRepository.create(
+          this.normalizeCreateUserData(userData, nationalIdDetails, {
+            passwordHash,
+            temporaryPasswordExpiresAt,
+          }),
+          transaction,
+        );
 
-      await this.userRoleService.asignRoleToUser(
-        user.id,
-        AUTH_ROLES.VOLUNTEER.id,
-        user.name,
-        transaction,
-        userData.branchId ?? undefined,
-      );
+        await this.userRoleService.asignRoleToUser(
+          user.id,
+          AUTH_ROLES.VOLUNTEER.id,
+          user.name,
+          transaction,
+          userData.branchId ?? undefined,
+        );
 
-      return user;
-    });
+        return user;
+      });
+
+      return {
+        user,
+        temporaryPassword,
+        temporaryPasswordExpiresAt,
+      };
+    } catch (err) {
+      this.throwConflictForDuplicateNationalId(err);
+      throw err;
+    }
   }
 
   async createTraineeWithRole(userData: IUser) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
+    const nationalIdDetails = getNationalIdDetails(userData.id);
+    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
-    return await this.sequelize.transaction(async (transaction) => {
-      const user = await this.userRepository.create(
-        this.normalizeCreateUserData(userData),
-        transaction,
-      );
-      await this.userRoleService.asignRoleToUser(
-        user.id,
-        AUTH_ROLES.TRAINEE.id,
-        user.name,
-        transaction,
-        userData.branchId ?? undefined,
-      );
-      return user;
-    });
+    try {
+      const user = await this.sequelize.transaction(async (transaction) => {
+        const user = await this.userRepository.create(
+          this.normalizeCreateUserData(userData, nationalIdDetails, {
+            passwordHash,
+            temporaryPasswordExpiresAt,
+          }),
+          transaction,
+        );
+        await this.userRoleService.asignRoleToUser(
+          user.id,
+          AUTH_ROLES.TRAINEE.id,
+          user.name,
+          transaction,
+          userData.branchId ?? undefined,
+        );
+        return user;
+      });
+
+      return {
+        user,
+        temporaryPassword,
+        temporaryPasswordExpiresAt,
+      };
+    } catch (err) {
+      this.throwConflictForDuplicateNationalId(err);
+      throw err;
+    }
   }
 
-  private normalizeCreateUserData(userData: IUser): IUser {
+  private normalizeCreateUserData(
+    userData: IUser,
+    nationalIdDetails: ReturnType<typeof getNationalIdDetails>,
+    authData?: {
+      passwordHash?: string;
+      temporaryPasswordExpiresAt?: Date;
+    },
+  ): IUser {
     return {
       ...userData,
+      id: randomUUID(),
+      nationalIdHash: nationalIdDetails.nationalIdHash,
+      nationalIdLast4: nationalIdDetails.nationalIdLast4,
+      nationalIdEncrypted: encryptNationalId(
+        nationalIdDetails.normalizedNationalId,
+      ),
+      passwordHash: authData?.passwordHash ?? null,
+      passwordChangedAt: null,
+      mustChangePassword: Boolean(authData?.passwordHash),
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+      temporaryPasswordExpiresAt:
+        authData?.temporaryPasswordExpiresAt ?? null,
       email: userData.email?.trim() || null,
       dateOfBirth: userData.dateOfBirth ?? null,
       shirtSize: userData.shirtSize ?? null,
@@ -74,25 +152,42 @@ export default class UserService {
     };
   }
 
-  public getAllUsers(branchId?: string) {
+  public getAllUsers(branchId?: string, includeNationalIdRevealId = false) {
     try {
-      return this.userRepository.getAllUsers(branchId);
+      return this.userRepository.getAllUsers(
+        branchId,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllTrainees(branchId?: string, includeNotes = false) {
+  public getAllTrainees(
+    branchId?: string,
+    includeNotes = false,
+    includeNationalIdRevealId = false,
+  ) {
     try {
-      return this.userRepository.getAllTrainees(branchId, includeNotes);
+      return this.userRepository.getAllTrainees(
+        branchId,
+        includeNotes,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllVolunteers(branchId?: string) {
+  public getAllVolunteers(
+    branchId?: string,
+    includeNationalIdRevealId = false,
+  ) {
     try {
-      return this.userRepository.getAllVolunteers(branchId);
+      return this.userRepository.getAllVolunteers(
+        branchId,
+        includeNationalIdRevealId,
+      );
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
@@ -111,6 +206,107 @@ export default class UserService {
       return this.userRepository.findById(id, includeNotes);
     } catch (err) {
       throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findByNationalIdHash(nationalIdHash: string) {
+    try {
+      return this.userRepository.findByNationalIdHash(nationalIdHash);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findByNationalIdHashForAuth(nationalIdHash: string) {
+    try {
+      return this.userRepository.findByNationalIdHashForAuth(nationalIdHash);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public findByIdForAuth(userId: string) {
+    try {
+      return this.userRepository.findByIdForAuth(userId);
+    } catch (err) {
+      throw new InternalServerErrorException(err);
+    }
+  }
+
+  public registerFailedLogin(
+    userId: string,
+    failedLoginAttempts: number,
+    lockedUntil: Date | null,
+  ) {
+    return this.userRepository.registerFailedLogin(
+      userId,
+      failedLoginAttempts,
+      lockedUntil,
+    );
+  }
+
+  public clearLoginFailures(userId: string) {
+    return this.userRepository.clearLoginFailures(userId);
+  }
+
+  public async updatePassword(
+    userId: string,
+    passwordHash: string,
+    mustChangePassword: boolean,
+    temporaryPasswordExpiresAt: Date | null,
+    passwordChangedAt: Date | null = new Date(),
+  ) {
+    const updated = await this.userRepository.updatePasswordAuthState(userId, {
+      passwordHash,
+      passwordChangedAt,
+      mustChangePassword,
+      temporaryPasswordExpiresAt,
+      failedLoginAttempts: 0,
+      lockedUntil: null,
+    });
+
+    if (!updated) {
+      throw new NotFoundException('User not found');
+    }
+  }
+
+  public async resetPassword(userId: string) {
+    const temporaryPassword = generateTemporaryPassword();
+    const passwordHash = await hashPassword(temporaryPassword);
+    const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
+
+    await this.updatePassword(
+      userId,
+      passwordHash,
+      true,
+      temporaryPasswordExpiresAt,
+      null,
+    );
+
+    return {
+      temporaryPassword,
+      temporaryPasswordExpiresAt,
+    };
+  }
+
+  public async getNationalIdByUuid(uuidId: string) {
+    try {
+      const user =
+        await this.userRepository.findByIdForNationalIdReveal(uuidId);
+
+      if (!user?.nationalIdEncrypted) {
+        throw new NotFoundException('National ID not found');
+      }
+
+      return {
+        nationalId: decryptNationalId(user.nationalIdEncrypted),
+      };
+    } catch (err) {
+      if (err instanceof NotFoundException) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException('Unable to reveal national ID');
     }
   }
 
@@ -247,6 +443,8 @@ export default class UserService {
 
     return {
       id: plain.id,
+      nationalIdLast4: plain.nationalIdLast4 ?? null,
+      nationalIdMasked: maskNationalIdLast4(plain.nationalIdLast4),
       name: plain.name,
       phoneNumber: plain.phoneNumber ?? null,
       gender: plain.gender ?? null,
@@ -260,6 +458,26 @@ export default class UserService {
       createdAt: plain.createdAt,
       updatedAt: plain.updatedAt,
     };
+  }
+
+  private async assertNationalIdAvailable(nationalIdHash: string) {
+    const existing =
+      await this.userRepository.findByNationalIdHash(nationalIdHash);
+
+    if (existing) {
+      throw new ConflictException('User with this national ID already exists');
+    }
+  }
+
+  private throwConflictForDuplicateNationalId(error: unknown) {
+    if (
+      error &&
+      typeof error === 'object' &&
+      'name' in error &&
+      error.name === 'SequelizeUniqueConstraintError'
+    ) {
+      throw new ConflictException('User with this national ID already exists');
+    }
   }
 
   private validateDateOfBirth(
