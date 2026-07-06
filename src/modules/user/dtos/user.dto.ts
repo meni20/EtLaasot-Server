@@ -13,6 +13,7 @@ import {
 export class UserDto {
   @IsNotEmpty()
   @IsString()
+  @MaxLength(32)
   id: string;
 
   @IsString()

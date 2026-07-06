@@ -21,6 +21,7 @@ export type AuthUser = {
   sub?: string;
   roles?: AuthRole[];
   activeBranch?: string;
+  mustChangePassword?: boolean;
 };
 
 @Injectable()
@@ -168,6 +169,38 @@ export class AuthorizationService {
 
     if (!targetUser) {
       throw new NotFoundException('User not found');
+    }
+
+    if (
+      targetUser.userRoles?.some(
+        (role) => role.roleId === AUTH_ROLES.SUPER_ADMIN.id,
+      )
+    ) {
+      throw new ForbiddenException('User access denied');
+    }
+
+    const branchIds = this.getBranchIdsFromUser(targetUser);
+    const hasAdminAccess = Array.from(branchIds).some((branchId) =>
+      this.hasAdminAccess(user, branchId),
+    );
+
+    if (!hasAdminAccess) {
+      throw new ForbiddenException('User access denied');
+    }
+  }
+
+  async assertAdminForUserUuid(user: AuthUser, targetUserUuid: string) {
+    const targetUser = await User.findByPk(targetUserUuid, {
+      attributes: ['id', 'branchId'],
+      include: [{ model: UserRole, attributes: ['roleId', 'resourceId'] }],
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+
+    if (this.isSuperAdmin(user)) {
+      return;
     }
 
     if (

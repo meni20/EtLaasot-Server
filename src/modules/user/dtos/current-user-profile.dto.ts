@@ -19,6 +19,8 @@ export class UpdateCurrentUserProfileDto {
 
 export type CurrentUserProfileDto = {
   id: string;
+  nationalIdLast4?: string | null;
+  nationalIdMasked?: string | null;
   name: string;
   phoneNumber?: string | null;
   gender?: 'male' | 'female' | null;

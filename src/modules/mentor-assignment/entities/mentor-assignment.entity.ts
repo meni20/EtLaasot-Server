@@ -31,11 +31,11 @@ export default class MentorAssignment extends Model {
   declare id: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare mentorId: string;
 
   @ForeignKey(() => User)
-  @Column(DataType.STRING)
+  @Column(DataType.UUID)
   declare traineeId: string;
 
   @ForeignKey(() => Branch)
@@ -59,4 +59,8 @@ export default class MentorAssignment extends Model {
 
   @BelongsTo(() => Branch)
   declare branch: Branch;
+
+  toJSON() {
+    return { ...super.toJSON() };
+  }
 }

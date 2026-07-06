@@ -6,6 +6,7 @@ import {
   Controller,
   Get,
   Param,
+  ParseUUIDPipe,
   Patch,
   Post,
   Query,
@@ -79,9 +80,12 @@ export default class UserController {
   }
 
   @Get('get-all-volunteers')
-  public getAllVolunteers(@Query('branchId') branchId: string, @Req() req: any) {
+  public getAllVolunteers(
+    @Query('branchId') branchId: string,
+    @Req() req: any,
+  ) {
     this.authorizationService.assertAdminForRequestedBranch(req.user, branchId);
-    return this.userService.getAllVolunteers(branchId);
+    return this.userService.getAllVolunteers(branchId, true);
   }
 
   @Get('get-all-trainees')
@@ -95,13 +99,36 @@ export default class UserController {
     const includeNotes = branchId
       ? this.authorizationService.hasAdminAccess(req.user, branchId)
       : true;
-    return this.userService.getAllTrainees(branchId, includeNotes);
+    const includeNationalIdRevealId = branchId
+      ? this.authorizationService.hasAdminAccess(req.user, branchId)
+      : this.authorizationService.isSuperAdmin(req.user);
+
+    return this.userService.getAllTrainees(
+      branchId,
+      includeNotes,
+      includeNationalIdRevealId,
+    );
   }
 
   @Get('get-all')
   public getAll(@Query('branchId') branchId: string, @Req() req: any) {
     this.authorizationService.assertAdminForRequestedBranch(req.user, branchId);
-    return this.userService.getAllUsers(branchId);
+    return this.userService.getAllUsers(branchId, true);
+  }
+
+  @Get(':userUuid/national-id')
+  public async getNationalId(
+    @Param('userUuid', new ParseUUIDPipe({ version: '4' })) userUuid: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForUserUuid(req.user, userUuid);
+    return this.userService.getNationalIdByUuid(userUuid);
+  }
+
+  @Patch(':userId/password-reset')
+  public async resetPassword(@Param('userId') userId: string, @Req() req: any) {
+    await this.authorizationService.assertAdminForUser(req.user, userId);
+    return this.userService.resetPassword(userId);
   }
 
   @Patch(':userId')
@@ -117,7 +144,8 @@ export default class UserController {
   @Get(':userId')
   public async getUser(@Param('userId') userId: string, @Req() req: any) {
     await this.authorizationService.assertSelfOrAdminForUser(req.user, userId);
-    const includeNotes = userId !== this.authorizationService.getActorId(req.user);
+    const includeNotes =
+      userId !== this.authorizationService.getActorId(req.user);
     return this.userService.findById(userId, includeNotes);
   }
 }

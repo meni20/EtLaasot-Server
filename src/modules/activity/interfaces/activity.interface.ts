@@ -13,4 +13,3 @@ export interface IVolunteerActivity {
   createdAt?: Date;
   updatedAt?: Date;
 }
-

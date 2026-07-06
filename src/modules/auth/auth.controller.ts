@@ -1,9 +1,9 @@
 import AuthService from './auth.service';
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
+  Patch,
   Post,
   Req,
   Res,
@@ -13,28 +13,23 @@ import {
   IsNotEmpty,
   IsOptional,
   IsString,
-  Matches,
   MaxLength,
 } from 'class-validator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Response } from 'express';
 import { useSecureCookies } from 'src/config/env.util';
+import { AllowPasswordChangeRequired } from './decorators/allow-password-change-required.decorator';
 
 class LoginDto {
-  @IsOptional()
   @IsString()
-  @Matches(/^\d{5,9}$/)
-  userId?: string;
-
-  @IsOptional()
-  @IsString()
-  @Matches(/^\d{5,9}$/)
-  identifyId?: string;
+  @IsNotEmpty()
+  @MaxLength(32)
+  identifier: string;
 
   @IsString()
   @IsNotEmpty()
-  @MaxLength(128)
-  loginCode: string;
+  @MaxLength(256)
+  password: string;
 
   @IsOptional()
   @IsString()
@@ -42,24 +37,32 @@ class LoginDto {
   recaptchaToken?: string;
 }
 
+class ChangePasswordDto {
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(256)
+  currentPassword: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(256)
+  newPassword: string;
+
+  @IsString()
+  @IsNotEmpty()
+  @MaxLength(256)
+  confirmPassword: string;
+}
+
 @Controller('auth')
 export default class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(
-    @Body() body: LoginDto,
-    @Res({ passthrough: true }) res: Response,
-  ) {
-    const userId = body.userId ?? body.identifyId;
-
-    if (!userId) {
-      throw new BadRequestException('userId is required');
-    }
-
+  async login(@Body() body: LoginDto, @Res({ passthrough: true }) res: Response) {
     const result = await this.authService.login(
-      userId,
-      body.loginCode,
+      body.identifier,
+      body.password,
       body.recaptchaToken,
     );
 
@@ -74,9 +77,9 @@ export default class AuthController {
     });
 
     return {
-      token: result.token,
       roles: result.roles,
       activeBranch: result.activeBranch,
+      mustChangePassword: result.mustChangePassword,
     };
   }
 
@@ -96,7 +99,20 @@ export default class AuthController {
 
   @Get('me')
   @UseGuards(JwtAuthGuard)
+  @AllowPasswordChangeRequired()
   getMe(@Req() req: any) {
     return this.authService.getMe(req.user.userId);
+  }
+
+  @Patch('change-password')
+  @UseGuards(JwtAuthGuard)
+  @AllowPasswordChangeRequired()
+  changePassword(@Body() body: ChangePasswordDto, @Req() req: any) {
+    return this.authService.changePassword(
+      req.user.userId,
+      body.currentPassword,
+      body.newPassword,
+      body.confirmPassword,
+    );
   }
 }
