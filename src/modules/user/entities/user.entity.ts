@@ -140,7 +140,6 @@ export default class User extends Model<IUser> {
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
 
-    delete values.legacyNationalId;
     delete values.nationalIdHash;
     delete values.nationalIdEncrypted;
     delete values.passwordHash;
