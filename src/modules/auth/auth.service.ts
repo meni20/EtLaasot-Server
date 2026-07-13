@@ -182,6 +182,10 @@ export default class AuthService {
     const safeUser =
       user && typeof user.toJSON === 'function' ? user.toJSON() : user;
 
+    if (!authState?.isActive) {
+      throw this.invalidCredentials();
+    }
+
     return {
       userId: safeUser?.id ?? '',
       name: user?.name || '',
@@ -203,9 +207,14 @@ export default class AuthService {
 
   private async assertLoginAllowed(user: {
     id: string;
+    isActive?: boolean | null;
     failedLoginAttempts?: number | null;
     lockedUntil?: Date | string | null;
   }) {
+    if (user.isActive === false) {
+      throw this.invalidCredentials();
+    }
+
     const lockedUntil = user.lockedUntil
       ? new Date(user.lockedUntil).getTime()
       : 0;

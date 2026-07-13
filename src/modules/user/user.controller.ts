@@ -1,4 +1,5 @@
 import UserService from './user.service';
+import type { UserListStatus } from './user.service';
 import { UserDto } from './dtos/user.dto';
 import {
   BadRequestException,
@@ -17,6 +18,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthorizationService } from '../auth/authorization.service';
 import { UpdateCurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
+import { ArchiveUserDto } from './dtos/archive-user.dto';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
@@ -82,14 +84,23 @@ export default class UserController {
   @Get('get-all-volunteers')
   public getAllVolunteers(
     @Query('branchId') branchId: string,
+    @Query('status') status: string,
     @Req() req: any,
   ) {
     this.authorizationService.assertAdminForRequestedBranch(req.user, branchId);
-    return this.userService.getAllVolunteers(branchId, true);
+    return this.userService.getAllVolunteers(
+      branchId,
+      true,
+      this.parseListStatus(status),
+    );
   }
 
   @Get('get-all-trainees')
-  public getAllTrainees(@Query('branchId') branchId: string, @Req() req: any) {
+  public getAllTrainees(
+    @Query('branchId') branchId: string,
+    @Query('status') status: string,
+    @Req() req: any,
+  ) {
     if (branchId) {
       this.authorizationService.assertBranchAccess(req.user, branchId);
     } else {
@@ -107,13 +118,22 @@ export default class UserController {
       branchId,
       includeNotes,
       includeNationalIdRevealId,
+      this.parseListStatus(status),
     );
   }
 
   @Get('get-all')
-  public getAll(@Query('branchId') branchId: string, @Req() req: any) {
+  public getAll(
+    @Query('branchId') branchId: string,
+    @Query('status') status: string,
+    @Req() req: any,
+  ) {
     this.authorizationService.assertAdminForRequestedBranch(req.user, branchId);
-    return this.userService.getAllUsers(branchId, true);
+    return this.userService.getAllUsers(
+      branchId,
+      true,
+      this.parseListStatus(status),
+    );
   }
 
   @Get(':userUuid/national-id')
@@ -129,6 +149,26 @@ export default class UserController {
   public async resetPassword(@Param('userId') userId: string, @Req() req: any) {
     await this.authorizationService.assertAdminForUser(req.user, userId);
     return this.userService.resetPassword(userId);
+  }
+
+  @Patch(':userId/archive')
+  public async archiveUser(
+    @Param('userId') userId: string,
+    @Body() body: ArchiveUserDto,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertCanArchiveUser(req.user, userId);
+    return this.userService.archiveUser(
+      userId,
+      this.authorizationService.getActorId(req.user) ?? '',
+      body?.reason,
+    );
+  }
+
+  @Patch(':userId/restore')
+  public async restoreUser(@Param('userId') userId: string, @Req() req: any) {
+    await this.authorizationService.assertCanArchiveUser(req.user, userId);
+    return this.userService.restoreUser(userId);
   }
 
   @Patch(':userId')
@@ -147,5 +187,17 @@ export default class UserController {
     const includeNotes =
       userId !== this.authorizationService.getActorId(req.user);
     return this.userService.findById(userId, includeNotes);
+  }
+
+  private parseListStatus(status?: string): UserListStatus {
+    if (!status) {
+      return 'active';
+    }
+
+    if (status === 'active' || status === 'archived' || status === 'all') {
+      return status;
+    }
+
+    throw new BadRequestException('Invalid user list status');
   }
 }

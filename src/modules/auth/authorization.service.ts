@@ -189,6 +189,57 @@ export class AuthorizationService {
     }
   }
 
+  async assertCanArchiveUser(user: AuthUser, targetUserId: string) {
+    if (targetUserId === this.getActorId(user)) {
+      throw new ForbiddenException('Cannot archive yourself');
+    }
+
+    const targetUser = await User.findByPk(targetUserId, {
+      include: [{ model: UserRole }],
+    });
+
+    if (!targetUser) {
+      throw new NotFoundException('User not found');
+    }
+
+    const roleIds =
+      targetUser.userRoles?.map((role) => Number(role.roleId)) ?? [];
+    const hasAdminRole = roleIds.some(
+      (roleId) =>
+        roleId === AUTH_ROLES.SUPER_ADMIN.id ||
+        roleId === AUTH_ROLES.BRANCH_ADMIN.id,
+    );
+
+    if (hasAdminRole) {
+      throw new ForbiddenException('Admin users cannot be archived');
+    }
+
+    const hasArchiveableRole = roleIds.some(
+      (roleId) =>
+        roleId === AUTH_ROLES.VOLUNTEER.id ||
+        roleId === AUTH_ROLES.TRAINEE.id,
+    );
+
+    if (!hasArchiveableRole) {
+      throw new ForbiddenException('Only volunteers or trainees can be archived');
+    }
+
+    if (this.isSuperAdmin(user)) {
+      return targetUser;
+    }
+
+    const branchIds = this.getBranchIdsFromUser(targetUser);
+    const hasAdminAccess = Array.from(branchIds).some((branchId) =>
+      this.hasAdminAccess(user, branchId),
+    );
+
+    if (!hasAdminAccess) {
+      throw new ForbiddenException('User access denied');
+    }
+
+    return targetUser;
+  }
+
   async assertAdminForUserUuid(user: AuthUser, targetUserUuid: string) {
     const targetUser = await User.findByPk(targetUserUuid, {
       attributes: ['id', 'branchId'],
@@ -281,7 +332,8 @@ export class AuthorizationService {
   }
 
   async getUserBranchIds(userId: string) {
-    const user = await User.findByPk(userId, {
+    const user = await User.findOne({
+      where: { id: userId, isActive: true },
       include: [{ model: UserRole }],
     });
 

@@ -14,6 +14,10 @@ export interface IUser {
   failedLoginAttempts?: number;
   lockedUntil?: Date | null;
   temporaryPasswordExpiresAt?: Date | null;
+  isActive?: boolean;
+  archivedAt?: Date | null;
+  archivedBy?: string | null;
+  archiveReason?: string | null;
   name: string;
   phoneNumber: string;
   gender?: UserGender | null;

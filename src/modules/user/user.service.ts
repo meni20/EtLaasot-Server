@@ -28,6 +28,8 @@ import {
   encryptNationalId,
 } from './national-id-encryption.util';
 
+export type UserListStatus = 'active' | 'archived' | 'all';
+
 @Injectable()
 export default class UserService {
   constructor(
@@ -152,11 +154,16 @@ export default class UserService {
     };
   }
 
-  public getAllUsers(branchId?: string, includeNationalIdRevealId = false) {
+  public getAllUsers(
+    branchId?: string,
+    includeNationalIdRevealId = false,
+    status: UserListStatus = 'active',
+  ) {
     try {
       return this.userRepository.getAllUsers(
         branchId,
         includeNationalIdRevealId,
+        status,
       );
     } catch (err) {
       throw new InternalServerErrorException(err);
@@ -167,12 +174,14 @@ export default class UserService {
     branchId?: string,
     includeNotes = false,
     includeNationalIdRevealId = false,
+    status: UserListStatus = 'active',
   ) {
     try {
       return this.userRepository.getAllTrainees(
         branchId,
         includeNotes,
         includeNationalIdRevealId,
+        status,
       );
     } catch (err) {
       throw new InternalServerErrorException(err);
@@ -182,11 +191,13 @@ export default class UserService {
   public getAllVolunteers(
     branchId?: string,
     includeNationalIdRevealId = false,
+    status: UserListStatus = 'active',
   ) {
     try {
       return this.userRepository.getAllVolunteers(
         branchId,
         includeNationalIdRevealId,
+        status,
       );
     } catch (err) {
       throw new InternalServerErrorException(err);
@@ -287,6 +298,88 @@ export default class UserService {
       temporaryPassword,
       temporaryPasswordExpiresAt,
     };
+  }
+
+  public async archiveUser(
+    userId: string,
+    archivedBy: string,
+    reason?: string | null,
+  ) {
+    try {
+      const existing = await this.userRepository.findById(userId, true);
+
+      if (!existing) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (existing.isActive === false) {
+        throw new ConflictException('User is already archived');
+      }
+
+      const archivedUser = await this.userRepository.archiveUser(userId, {
+        archivedAt: new Date(),
+        archivedBy,
+        archiveReason: reason?.trim() || null,
+      });
+
+      if (!archivedUser) {
+        throw new NotFoundException('User not found');
+      }
+
+      return {
+        id: archivedUser.id,
+        isActive: archivedUser.isActive,
+        archivedAt: archivedUser.archivedAt,
+        archivedBy: archivedUser.archivedBy,
+        archiveReason: archivedUser.archiveReason,
+      };
+    } catch (err) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ConflictException
+      ) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException('Unable to archive user');
+    }
+  }
+
+  public async restoreUser(userId: string) {
+    try {
+      const existing = await this.userRepository.findById(userId, true);
+
+      if (!existing) {
+        throw new NotFoundException('User not found');
+      }
+
+      if (existing.isActive !== false) {
+        throw new ConflictException('User is already active');
+      }
+
+      const restoredUser = await this.userRepository.restoreUser(userId);
+
+      if (!restoredUser) {
+        throw new NotFoundException('User not found');
+      }
+
+      return {
+        id: restoredUser.id,
+        isActive: restoredUser.isActive,
+        archivedAt: restoredUser.archivedAt,
+        archivedBy: restoredUser.archivedBy,
+        archiveReason: restoredUser.archiveReason,
+      };
+    } catch (err) {
+      if (
+        err instanceof NotFoundException ||
+        err instanceof ConflictException
+      ) {
+        throw err;
+      }
+
+      throw new InternalServerErrorException('Unable to restore user');
+    }
   }
 
   public async getNationalIdByUuid(uuidId: string) {

@@ -36,11 +36,13 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'mentor',
+          where: { isActive: true },
           attributes: ['id', 'name', 'phoneNumber', 'email'],
         },
         {
           model: User,
           as: 'trainee',
+          where: { isActive: true },
           attributes: [
             'id',
             'name',
@@ -61,6 +63,7 @@ export default class MentorAssignmentRepository {
         {
           model: User,
           as: 'trainee',
+          where: { isActive: true },
           attributes: [
             'id',
             'name',
@@ -94,7 +97,7 @@ export default class MentorAssignmentRepository {
     });
     const assignedIds = assigned.map((a) => a.traineeId);
 
-    const whereClause: WhereOptions = { branchId };
+    const whereClause: WhereOptions = { branchId, isActive: true };
     if (assignedIds.length > 0) {
       (whereClause as Record<string, unknown>).id = { [Op.notIn]: assignedIds };
     }
