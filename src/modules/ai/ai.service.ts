@@ -21,9 +21,7 @@ export class AiService {
   private readonly model: string =
     getOptionalEnv('GOOGLE_GENAI_MODEL', 'gemini-2.5-flash') ??
     'gemini-2.5-flash';
-  private readonly client = new GoogleGenAI({
-    apiKey: getRequiredEnv('GOOGLE_GENAI_API_KEY'),
-  });
+  private client?: GoogleGenAI;
 
   public async generateEventSummary(
     eventName: string,
@@ -31,7 +29,7 @@ export class AiService {
     activities: EventSummaryActivityInput[],
   ): Promise<string> {
     try {
-      const response = await this.client.models.generateContent({
+      const response = await this.getClient().models.generateContent({
         model: this.model,
         contents: this.buildPrompt(eventName, eventDate, activities),
       });
@@ -91,6 +89,22 @@ export class AiService {
 דיווחי הפעילות:
 ${activityLines}
 `.trim();
+  }
+
+  private getClient(): GoogleGenAI {
+    if (!this.client) {
+      try {
+        this.client = new GoogleGenAI({
+          apiKey: getRequiredEnv('GOOGLE_GENAI_API_KEY'),
+        });
+      } catch {
+        throw new InternalServerErrorException(
+          'AI summary generation is not configured',
+        );
+      }
+    }
+
+    return this.client;
   }
 
   private formatDate(value: Date | string | null | undefined): string {
