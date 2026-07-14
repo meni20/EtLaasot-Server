@@ -66,6 +66,23 @@ export default class User extends Model<IUser> {
   @Column({ field: 'temporary_password_expires_at', type: DataType.DATE })
   declare temporaryPasswordExpiresAt: Date | null;
 
+  @Default(true)
+  @Column({ field: 'is_active', type: DataType.BOOLEAN })
+  declare isActive: boolean;
+
+  @AllowNull
+  @Column({ field: 'archived_at', type: DataType.DATE })
+  declare archivedAt: Date | null;
+
+  @ForeignKey(() => User)
+  @AllowNull
+  @Column({ field: 'archived_by', type: DataType.UUID })
+  declare archivedBy: string | null;
+
+  @AllowNull
+  @Column({ field: 'archive_reason', type: DataType.TEXT })
+  declare archiveReason: string | null;
+
   @Column(DataType.STRING)
   declare name: string;
 
@@ -140,7 +157,6 @@ export default class User extends Model<IUser> {
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
 
-    delete values.legacyNationalId;
     delete values.nationalIdHash;
     delete values.nationalIdEncrypted;
     delete values.passwordHash;

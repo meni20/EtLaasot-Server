@@ -69,11 +69,11 @@ export default class ActivityService {
       this.eventService.findById(eventId),
     ]);
 
-    if (!volunteer) {
+    if (!volunteer?.isActive) {
       throw new NotFoundException('Volunteer not found');
     }
 
-    if (!trainee) {
+    if (!trainee?.isActive) {
       throw new NotFoundException('Trainee not found');
     }
 

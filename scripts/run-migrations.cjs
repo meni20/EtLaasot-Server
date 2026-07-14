@@ -5,6 +5,7 @@ const { Client } = require('pg');
 const rootDir = path.resolve(__dirname, '..');
 const envPath = path.join(rootDir, '.env');
 const migrationsDir = path.join(rootDir, 'migrations');
+const forceServerEnvKeys = new Set(['NATIONAL_ID_ENCRYPTION_KEY']);
 
 function loadEnvFile() {
   if (!fs.existsSync(envPath)) {
@@ -28,7 +29,7 @@ function loadEnvFile() {
     const rawValue = trimmed.slice(separatorIndex + 1).trim();
     const value = rawValue.replace(/^["']|["']$/g, '');
 
-    if (!process.env[key]) {
+    if (forceServerEnvKeys.has(key) || !process.env[key]) {
       process.env[key] = value;
     }
   }

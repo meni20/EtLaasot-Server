@@ -8,6 +8,18 @@ import Event from '../event/entities/event.entity';
 
 @Injectable()
 export default class UserRepository {
+  private getActiveWhere(status: 'active' | 'archived' | 'all' = 'active') {
+    if (status === 'archived') {
+      return { isActive: false };
+    }
+
+    if (status === 'all') {
+      return {};
+    }
+
+    return { isActive: true };
+  }
+
   private getSafeAttributes(
     includeNotes = true,
     includeNationalIdRevealId = false,
@@ -42,8 +54,9 @@ export default class UserRepository {
   public async getAllUsers(
     branchId?: string,
     includeNationalIdRevealId = false,
+    status: 'active' | 'archived' | 'all' = 'active',
   ) {
-    const where: any = {};
+    const where: any = this.getActiveWhere(status);
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
@@ -64,8 +77,9 @@ export default class UserRepository {
   public async getAllVolunteers(
     branchId?: string,
     includeNationalIdRevealId = false,
+    status: 'active' | 'archived' | 'all' = 'active',
   ) {
-    const where: any = {};
+    const where: any = this.getActiveWhere(status);
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
@@ -75,7 +89,7 @@ export default class UserRepository {
         {
           model: UserRole,
           where: { roleId: AUTH_ROLES.VOLUNTEER.id },
-          attributes: [],
+          attributes: ['roleId', 'resourceId'],
         },
       ],
       limit: 500,
@@ -86,8 +100,9 @@ export default class UserRepository {
     branchId?: string,
     includeNotes = false,
     includeNationalIdRevealId = false,
+    status: 'active' | 'archived' | 'all' = 'active',
   ) {
-    const where: any = {};
+    const where: any = this.getActiveWhere(status);
     if (branchId) where.branchId = branchId;
 
     return await User.findAll({
@@ -100,7 +115,7 @@ export default class UserRepository {
         {
           model: UserRole,
           where: { roleId: AUTH_ROLES.TRAINEE.id },
-          attributes: [],
+          attributes: ['roleId', 'resourceId'],
         },
       ],
       limit: 500,
@@ -109,7 +124,7 @@ export default class UserRepository {
 
   public async countByBranchAndRole(branchId: string, roleId: number) {
     return await User.count({
-      where: { branchId },
+      where: { branchId, isActive: true },
       include: [
         {
           model: UserRole,
@@ -128,7 +143,7 @@ export default class UserRepository {
 
   public async findByNationalIdHashForAuth(nationalIdHash: string) {
     return await User.findOne({
-      where: { nationalIdHash },
+      where: { nationalIdHash, isActive: true },
       attributes: [
         'id',
         'name',
@@ -138,12 +153,14 @@ export default class UserRepository {
         'failedLoginAttempts',
         'lockedUntil',
         'temporaryPasswordExpiresAt',
+        'isActive',
       ],
     });
   }
 
   public async findByIdForAuth(id: string) {
-    return await User.findByPk(id, {
+    return await User.findOne({
+      where: { id, isActive: true },
       attributes: [
         'id',
         'name',
@@ -152,6 +169,7 @@ export default class UserRepository {
         'failedLoginAttempts',
         'lockedUntil',
         'temporaryPasswordExpiresAt',
+        'isActive',
       ],
     });
   }
@@ -220,6 +238,50 @@ export default class UserRepository {
       attributes: this.getSafeAttributes(includeNotes),
       include: [UserRole],
     });
+  }
+
+  public async archiveUser(
+    id: string,
+    data: {
+      archivedAt: Date;
+      archivedBy: string;
+      archiveReason: string | null;
+    },
+    transaction?: Transaction,
+  ) {
+    const user = await User.findByPk(id, { transaction });
+
+    if (!user) {
+      return null;
+    }
+
+    return await user.update(
+      {
+        isActive: false,
+        archivedAt: data.archivedAt,
+        archivedBy: data.archivedBy,
+        archiveReason: data.archiveReason,
+      },
+      { transaction },
+    );
+  }
+
+  public async restoreUser(id: string, transaction?: Transaction) {
+    const user = await User.findByPk(id, { transaction });
+
+    if (!user) {
+      return null;
+    }
+
+    return await user.update(
+      {
+        isActive: true,
+        archivedAt: null,
+        archivedBy: null,
+        archiveReason: null,
+      },
+      { transaction },
+    );
   }
 
   public async updateProfile(

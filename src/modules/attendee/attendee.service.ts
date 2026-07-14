@@ -411,7 +411,7 @@ export default class AttendeeService {
 
   private async assertUsersBelongToBranch(userIds: string[], branchId: string) {
     const users = await User.findAll({
-      where: { id: userIds },
+      where: { id: userIds, isActive: true },
       include: [UserRole],
     });
 
