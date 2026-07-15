@@ -154,6 +154,7 @@ export default class UserRepository {
         'lockedUntil',
         'temporaryPasswordExpiresAt',
         'isActive',
+        'branchId',
       ],
     });
   }
@@ -170,6 +171,7 @@ export default class UserRepository {
         'lockedUntil',
         'temporaryPasswordExpiresAt',
         'isActive',
+        'branchId',
       ],
     });
   }

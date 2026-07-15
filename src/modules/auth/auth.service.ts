@@ -80,14 +80,13 @@ export default class AuthService {
     );
     const branchMap = new Map(branches.map((branch) => [branch.id, branch]));
 
-    const roles = rows.map((r) => ({
-      role: ROLE_ID_TO_NAME[r.roleId] || 'UNKNOWN',
-      roleId: r.roleId,
-      branchId: r.resourceId as unknown as string,
-      branchName: branchMap.get(r.resourceId as unknown as string)?.name || '',
-    }));
+    const roles = this.buildRoles(
+      rows,
+      branchMap,
+      user.branchId as string | null | undefined,
+    );
 
-    const activeBranch = roles[0]?.branchId || '';
+    const activeBranch = roles.find((role) => role.branchId)?.branchId || '';
     const mustChangePassword = Boolean(user.mustChangePassword);
 
     const payload = {
@@ -171,16 +170,15 @@ export default class AuthService {
       resolvedBranches.map((branch) => [branch.id, branch]),
     );
 
-    const roles = rows.map((r) => ({
-      role: ROLE_ID_TO_NAME[r.roleId] || 'UNKNOWN',
-      roleId: r.roleId,
-      branchId: r.resourceId as unknown as string,
-      branchName: branchMap.get(r.resourceId as unknown as string)?.name || '',
-    }));
-
-    const activeBranch = roles[0]?.branchId || '';
     const safeUser =
       user && typeof user.toJSON === 'function' ? user.toJSON() : user;
+    const roles = this.buildRoles(
+      rows,
+      branchMap,
+      safeUser?.branchId as string | null | undefined,
+    );
+
+    const activeBranch = roles.find((role) => role.branchId)?.branchId || '';
 
     if (!authState?.isActive) {
       throw this.invalidCredentials();
@@ -203,6 +201,23 @@ export default class AuthService {
     } catch {
       throw this.invalidCredentials();
     }
+  }
+
+  private buildRoles(
+    rows: Array<{ roleId: number; resourceId?: string | null }>,
+    branchMap: Map<string, { name?: string }>,
+    fallbackBranchId?: string | null,
+  ) {
+    return rows.map((r) => {
+      const branchId = String(r.resourceId || fallbackBranchId || '');
+
+      return {
+        role: ROLE_ID_TO_NAME[r.roleId] || 'UNKNOWN',
+        roleId: r.roleId,
+        branchId,
+        branchName: branchId ? branchMap.get(branchId)?.name || '' : '',
+      };
+    });
   }
 
   private async assertLoginAllowed(user: {
