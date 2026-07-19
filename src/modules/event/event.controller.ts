@@ -88,6 +88,57 @@ export default class EventController {
     return await this.eventService.removeEventImage(eventId);
   }
 
+  @Get('calendar-background/:branchId/:monthKey')
+  public async getCalendarMonthBackground(
+    @Param('branchId') branchId: string,
+    @Param('monthKey') monthKey: string,
+    @Req() req: any,
+  ) {
+    this.authorizationService.assertAdminForBranch(req.user, branchId);
+    return await this.eventService.getCalendarMonthBackground(branchId, monthKey);
+  }
+
+  @Put('calendar-background/:branchId/:monthKey/image')
+  @UseInterceptors(FileInterceptor('image'))
+  public async uploadCalendarMonthBackground(
+    @Param('branchId') branchId: string,
+    @Param('monthKey') monthKey: string,
+    @UploadedFile(
+      new ParseFilePipe({
+        validators: [
+          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new FileTypeValidator({
+            fileType: /^image\/(jpeg|png|webp)$/,
+            skipMagicNumbersValidation: true,
+          }),
+        ],
+      }),
+    )
+    image: Express.Multer.File,
+    @Req() req: any,
+  ) {
+    this.authorizationService.assertAdminForBranch(req.user, branchId);
+    return await this.eventService.uploadCalendarMonthBackground(
+      branchId,
+      monthKey,
+      image,
+      req.user.userId,
+    );
+  }
+
+  @Delete('calendar-background/:branchId/:monthKey/image')
+  public async deleteCalendarMonthBackground(
+    @Param('branchId') branchId: string,
+    @Param('monthKey') monthKey: string,
+    @Req() req: any,
+  ) {
+    this.authorizationService.assertAdminForBranch(req.user, branchId);
+    return await this.eventService.removeCalendarMonthBackground(
+      branchId,
+      monthKey,
+    );
+  }
+
   @Get(':eventId/ai-insights')
   public async getEventAiInsights(
     @Param('eventId') eventId: string,

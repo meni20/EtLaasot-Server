@@ -60,6 +60,36 @@ export class SupabaseStorageService {
     return path;
   }
 
+  public async uploadCalendarMonthBackground(
+    branchId: string,
+    monthKey: string,
+    file: Express.Multer.File,
+  ): Promise<string> {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException('Only JPEG, PNG, and WebP images are allowed');
+    }
+
+    const path = this.buildCalendarMonthBackgroundPath(branchId, monthKey, file);
+    const { error } = await this.client.storage
+      .from(this.bucket)
+      .upload(path, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (error) {
+      throw new InternalServerErrorException(
+        'Failed to upload calendar background image',
+      );
+    }
+
+    return path;
+  }
+
   public async deleteEventImage(imagePath?: string | null): Promise<void> {
     if (!imagePath) {
       return;
@@ -92,6 +122,15 @@ export class SupabaseStorageService {
   ): string {
     const extension = this.getSafeExtension(file);
     return `events/${eventId}/${randomUUID()}${extension}`;
+  }
+
+  private buildCalendarMonthBackgroundPath(
+    branchId: string,
+    monthKey: string,
+    file: Express.Multer.File,
+  ): string {
+    const extension = this.getSafeExtension(file);
+    return `calendar-backgrounds/${branchId}/${monthKey}/${randomUUID()}${extension}`;
   }
 
   private getSafeExtension(file: Express.Multer.File): string {
