@@ -8,6 +8,12 @@
 4. Run `npm run seed` to create baseline roles, branches, and the local admin user.
 5. Start the API with `npm run start:dev`.
 
+## Render runtime
+
+The Render web service should use Node 20 or newer, build with `npm run build`, and start with `npm start` or `npm run start:prod`. Both start commands run the compiled `dist/main` entrypoint.
+
+The root route (`/`) returns `{ "ok": true }` and can be used as a simple health check.
+
 ## Deployment order
 
 Production deployments should keep `DB_SYNC=false`, provide a long random `JWT_SECRET`, set strict `CORS_ORIGINS`, and run `npm run migrate` against the target database before starting the updated server with `npm run start:prod`.

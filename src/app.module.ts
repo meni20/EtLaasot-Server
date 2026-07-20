@@ -1,8 +1,8 @@
-import { Module } from '@nestjs/common';
+﻿import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { SequelizeModule } from '@nestjs/sequelize';
-import fs from 'fs';
-import path from 'path';
+import * as fs from 'fs';
+import * as path from 'path';
 import { UserModule } from './modules/user/user.module';
 import { EventModule } from './modules/event/event.module';
 import { AttendeeModule } from './modules/attendee/attendee.module';
@@ -13,6 +13,8 @@ import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assig
 import { ActivityModule } from './modules/activity/activity.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
+import { AppController } from './app.controller';
+import { AppService } from './app.service';
 import {
   getBooleanEnv,
   getPortEnv,
@@ -96,5 +98,7 @@ const getDbDialectOptions = () => {
     MentorAssignmentModule,
     ActivityModule,
   ],
+  controllers: [AppController],
+  providers: [AppService],
 })
 export class AppModule {}

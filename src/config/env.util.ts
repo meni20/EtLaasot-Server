@@ -1,5 +1,11 @@
 export const isProduction = () => process.env.NODE_ENV === 'production';
 
+// Controls whether auth cookies are sent cross-site (SameSite=None; Secure).
+// Decoupled from NODE_ENV because the deployed build may run with
+// NODE_ENV=development while still being served over HTTPS cross-origin.
+export const useSecureCookies = () =>
+  getBooleanEnv('COOKIE_CROSS_SITE', false);
+
 export const getRequiredEnv = (key: string): string => {
   const value = process.env[key]?.trim();
 

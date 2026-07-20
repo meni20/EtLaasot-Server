@@ -6,32 +6,21 @@ import {
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
-import { getRequiredEnv } from 'src/config/env.util';
+import { getOptionalEnv, getRequiredEnv } from 'src/config/env.util';
 
 const ALLOWED_IMAGE_MIME_TYPES = new Set([
   'image/jpeg',
   'image/png',
   'image/webp',
 ]);
+const DEFAULT_SUPABASE_URL = 'https://tmlnuqrwhdeplpeuuvwv.supabase.co';
+const DEFAULT_EVENT_IMAGES_BUCKET = 'event-images';
 
 @Injectable()
 export class SupabaseStorageService {
-  private readonly client: SupabaseClient;
-  private readonly bucket: string;
-
-  constructor() {
-    this.client = createClient(
-      getRequiredEnv('SUPABASE_URL'),
-      getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
-      {
-        auth: {
-          persistSession: false,
-          autoRefreshToken: false,
-        },
-      },
-    );
-    this.bucket = getRequiredEnv('SUPABASE_EVENT_IMAGES_BUCKET');
-  }
+  private client?: SupabaseClient;
+  private bucket?: string;
+  private publicUrlBase?: string | null;
 
   public async uploadEventImage(
     eventId: string,
@@ -42,12 +31,16 @@ export class SupabaseStorageService {
     }
 
     if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
-      throw new BadRequestException('Only JPEG, PNG, and WebP images are allowed');
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WebP images are allowed',
+      );
     }
 
+    const client = this.getClient();
+    const bucket = this.getBucket();
     const path = this.buildEventImagePath(eventId, file);
-    const { error } = await this.client.storage
-      .from(this.bucket)
+    const { error } = await client.storage
+      .from(bucket)
       .upload(path, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
@@ -70,12 +63,21 @@ export class SupabaseStorageService {
     }
 
     if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
-      throw new BadRequestException('Only JPEG, PNG, and WebP images are allowed');
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WebP images are allowed',
+      );
     }
 
-    const path = this.buildCalendarMonthBackgroundPath(branchId, monthKey, file);
-    const { error } = await this.client.storage
-      .from(this.bucket)
+    const path = this.buildCalendarMonthBackgroundPath(
+      branchId,
+      monthKey,
+      file,
+    );
+    const client = this.getClient();
+    const bucket = this.getBucket();
+
+    const { error } = await client.storage
+      .from(bucket)
       .upload(path, file.buffer, {
         contentType: file.mimetype,
         upsert: false,
@@ -95,9 +97,9 @@ export class SupabaseStorageService {
       return;
     }
 
-    const { error } = await this.client.storage
-      .from(this.bucket)
-      .remove([imagePath]);
+    const client = this.getClient();
+    const bucket = this.getBucket();
+    const { error } = await client.storage.from(bucket).remove([imagePath]);
 
     if (error) {
       throw new InternalServerErrorException('Failed to delete event image');
@@ -109,11 +111,13 @@ export class SupabaseStorageService {
       return null;
     }
 
-    const { data } = this.client.storage
-      .from(this.bucket)
-      .getPublicUrl(imagePath);
+    const publicUrlBase = this.getPublicUrlBase();
 
-    return data.publicUrl;
+    if (!publicUrlBase) {
+      return null;
+    }
+
+    return `${publicUrlBase}/${this.encodeStoragePath(imagePath)}`;
   }
 
   private buildEventImagePath(
@@ -130,7 +134,68 @@ export class SupabaseStorageService {
     file: Express.Multer.File,
   ): string {
     const extension = this.getSafeExtension(file);
+
     return `calendar-backgrounds/${branchId}/${monthKey}/${randomUUID()}${extension}`;
+  }
+
+  private getClient(): SupabaseClient {
+    if (!this.client) {
+      try {
+        this.client = createClient(
+          getRequiredEnv('SUPABASE_URL'),
+          getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
+          {
+            auth: {
+              persistSession: false,
+              autoRefreshToken: false,
+            },
+          },
+        );
+      } catch {
+        throw new InternalServerErrorException(
+          'Event image storage is not configured',
+        );
+      }
+    }
+
+    return this.client;
+  }
+
+  private getBucket(): string {
+    if (!this.bucket) {
+      this.bucket =
+        getOptionalEnv('SUPABASE_EVENT_IMAGES_BUCKET') ??
+        DEFAULT_EVENT_IMAGES_BUCKET;
+    }
+
+    return this.bucket;
+  }
+
+  private getPublicUrlBase(): string | null {
+    if (this.publicUrlBase !== undefined) {
+      return this.publicUrlBase;
+    }
+
+    const supabaseUrl = getOptionalEnv('SUPABASE_URL', DEFAULT_SUPABASE_URL);
+    const bucket = this.getBucket();
+
+    if (!supabaseUrl || !bucket) {
+      this.publicUrlBase = null;
+      return this.publicUrlBase;
+    }
+
+    const normalizedSupabaseUrl = supabaseUrl.replace(/\/+$/, '');
+
+    this.publicUrlBase = `${normalizedSupabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}`;
+
+    return this.publicUrlBase;
+  }
+
+  private encodeStoragePath(imagePath: string): string {
+    return imagePath
+      .split('/')
+      .map((part) => encodeURIComponent(part))
+      .join('/');
   }
 
   private getSafeExtension(file: Express.Multer.File): string {
