@@ -31,7 +31,9 @@ export class SupabaseStorageService {
     }
 
     if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
-      throw new BadRequestException('Only JPEG, PNG, and WebP images are allowed');
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WebP images are allowed',
+      );
     }
 
     const client = this.getClient();
@@ -46,6 +48,45 @@ export class SupabaseStorageService {
 
     if (error) {
       throw new InternalServerErrorException('Failed to upload event image');
+    }
+
+    return path;
+  }
+
+  public async uploadCalendarMonthBackground(
+    branchId: string,
+    monthKey: string,
+    file: Express.Multer.File,
+  ): Promise<string> {
+    if (!file) {
+      throw new BadRequestException('Image file is required');
+    }
+
+    if (!ALLOWED_IMAGE_MIME_TYPES.has(file.mimetype)) {
+      throw new BadRequestException(
+        'Only JPEG, PNG, and WebP images are allowed',
+      );
+    }
+
+    const path = this.buildCalendarMonthBackgroundPath(
+      branchId,
+      monthKey,
+      file,
+    );
+    const client = this.getClient();
+    const bucket = this.getBucket();
+
+    const { error } = await client.storage
+      .from(bucket)
+      .upload(path, file.buffer, {
+        contentType: file.mimetype,
+        upsert: false,
+      });
+
+    if (error) {
+      throw new InternalServerErrorException(
+        'Failed to upload calendar background image',
+      );
     }
 
     return path;
@@ -85,6 +126,16 @@ export class SupabaseStorageService {
   ): string {
     const extension = this.getSafeExtension(file);
     return `events/${eventId}/${randomUUID()}${extension}`;
+  }
+
+  private buildCalendarMonthBackgroundPath(
+    branchId: string,
+    monthKey: string,
+    file: Express.Multer.File,
+  ): string {
+    const extension = this.getSafeExtension(file);
+
+    return `calendar-backgrounds/${branchId}/${monthKey}/${randomUUID()}${extension}`;
   }
 
   private getClient(): SupabaseClient {
@@ -134,8 +185,9 @@ export class SupabaseStorageService {
     }
 
     const normalizedSupabaseUrl = supabaseUrl.replace(/\/+$/, '');
-    this.publicUrlBase =
-      `${normalizedSupabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}`;
+
+    this.publicUrlBase = `${normalizedSupabaseUrl}/storage/v1/object/public/${encodeURIComponent(bucket)}`;
+
     return this.publicUrlBase;
   }
 

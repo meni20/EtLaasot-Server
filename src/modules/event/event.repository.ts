@@ -4,6 +4,7 @@ import Event from './entities/event.entity';
 import User from '../user/entities/user.entity';
 import { IEvent } from './interfaces/event.interface';
 import Attendee from '../attendee/entities/attendee.entity';
+import CalendarMonthBackground from './entities/calendar-month-background.entity';
 
 @Injectable()
 export default class EventRepository {
@@ -122,5 +123,46 @@ export default class EventRepository {
       order: [['start_date', 'ASC']],
       limit: 1000,
     });
+  }
+
+  public async findCalendarBackground(branchId: string, monthKey: string) {
+    return CalendarMonthBackground.findOne({
+      where: { branchId, monthKey },
+    });
+  }
+
+  public async upsertCalendarBackground(data: {
+    branchId: string;
+    monthKey: string;
+    imagePath: string;
+    uploadedBy?: string | null;
+  }) {
+    const existing = await this.findCalendarBackground(
+      data.branchId,
+      data.monthKey,
+    );
+
+    if (existing) {
+      await existing.update({
+        imagePath: data.imagePath,
+        uploadedBy: data.uploadedBy ?? null,
+      });
+      return existing;
+    }
+
+    return CalendarMonthBackground.create({
+      branchId: data.branchId,
+      monthKey: data.monthKey,
+      imagePath: data.imagePath,
+      uploadedBy: data.uploadedBy ?? null,
+    });
+  }
+
+  public async deleteCalendarBackground(branchId: string, monthKey: string) {
+    const existing = await this.findCalendarBackground(branchId, monthKey);
+    if (!existing) return null;
+
+    await existing.destroy();
+    return existing;
   }
 }

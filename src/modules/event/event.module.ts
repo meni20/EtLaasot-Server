@@ -11,6 +11,7 @@ import { SupabaseStorageModule } from '../storage/supabase-storage.module';
 import VolunteerActivity from '../activity/entities/activity.entity';
 import ActivityRepository from '../activity/activity.repository';
 import { AiModule } from '../ai/ai.module';
+import CalendarMonthBackground from './entities/calendar-month-background.entity';
 
 @Module({
   imports: [
@@ -19,6 +20,7 @@ import { AiModule } from '../ai/ai.module';
       Attendee,
       EventPairing,
       VolunteerActivity,
+      CalendarMonthBackground,
     ]),
     forwardRef(() => AttendeeModule),
     SupabaseStorageModule,

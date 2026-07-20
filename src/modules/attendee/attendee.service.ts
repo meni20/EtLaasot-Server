@@ -5,6 +5,7 @@ import {
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
+import { Transaction } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import AttendeeRepository from './attendee.repository';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
@@ -69,6 +70,45 @@ export default class AttendeeService {
     }
   }
 
+  public async getRegisteredEventsByUser(
+    userId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const branchIds = this.getAdminBranchFilter(actor);
+    const attendees = await this.attendeeRepository.getRegisteredEventsByUser(
+      userId,
+      branchIds,
+    );
+
+    const now = Date.now();
+    return attendees
+      .map((attendee) => {
+        const plainAttendee = this.toSafeAttendee(attendee);
+        return {
+          attendeeId: plainAttendee.id,
+          rsvpStatus: plainAttendee.rsvpStatus,
+          rsvpDate: plainAttendee.rsvpDate,
+          checkedIn: plainAttendee.checkedIn,
+          event: plainAttendee.event,
+        };
+      })
+      .filter((entry) => !!entry.event)
+      .sort((first, second) => {
+        const firstStart = new Date(first.event.startDate).getTime();
+        const secondStart = new Date(second.event.startDate).getTime();
+        const firstUpcoming = firstStart >= now;
+        const secondUpcoming = secondStart >= now;
+
+        if (firstUpcoming !== secondUpcoming) {
+          return firstUpcoming ? -1 : 1;
+        }
+
+        return firstUpcoming
+          ? firstStart - secondStart
+          : secondStart - firstStart;
+      });
+  }
+
   public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
     try {
       return await this.attendeeRepository.updateRsvp(attendeeId, rsvpStatus);
@@ -115,10 +155,50 @@ export default class AttendeeService {
     intent: AttendanceIntent,
     actor: AuthenticatedUser,
   ) {
-    const volunteerId = this.getActorId(actor);
+    const actorId = this.getActorId(actor);
     const event = await this.getEventOrThrow(eventId);
     this.assertBranchAccess(actor, event.branchId);
+
+    if (this.actorHasRole(actor, AUTH_ROLES.VOLUNTEER.id)) {
+      return this.updateVolunteerAttendanceIntent(
+        eventId,
+        intent,
+        actor,
+        actorId,
+        event,
+      );
+    }
+
+    if (this.actorHasRole(actor, AUTH_ROLES.TRAINEE.id)) {
+      return this.updateTraineeAttendanceIntent(
+        eventId,
+        intent,
+        actor,
+        actorId,
+        event,
+      );
+    }
+
+    throw new ForbiddenException('Volunteer or trainee role is required');
+  }
+
+  private async updateVolunteerAttendanceIntent(
+    eventId: string,
+    intent: AttendanceIntent,
+    actor: AuthenticatedUser,
+    volunteerId: string,
+    event: Event,
+  ) {
     this.assertVolunteer(actor);
+
+    if (
+      intent !== AttendanceIntent.VOLUNTEER_ONLY &&
+      intent !== AttendanceIntent.NONE
+    ) {
+      throw new BadRequestException(
+        'Volunteers can only update their own attendance',
+      );
+    }
 
     const assignment = await MentorAssignment.findOne({
       where: {
@@ -130,80 +210,25 @@ export default class AttendeeService {
     });
     const traineeId = assignment?.traineeId;
 
-    if (
-      (intent === AttendanceIntent.BOTH ||
-        intent === AttendanceIntent.TRAINEE_ONLY) &&
-      !traineeId
-    ) {
-      throw new BadRequestException('No active trainee assignment found');
-    }
-
-    if (traineeId) {
-      await this.assertUsersBelongToBranch(
-        [volunteerId, traineeId],
-        event.branchId,
-      );
-    } else {
-      await this.assertUsersBelongToBranch([volunteerId], event.branchId);
-    }
+    await this.assertUsersBelongToBranch([volunteerId], event.branchId);
 
     await this.sequelize.transaction(async (transaction) => {
-      if (intent === AttendanceIntent.BOTH) {
-        await this.attendeeRepository.ensureAttendee(
-          volunteerId,
-          eventId,
-          transaction,
-        );
-        await this.attendeeRepository.ensureAttendee(
-          traineeId!,
-          eventId,
-          transaction,
-        );
-        await this.attendeeRepository.createPairing(
-          eventId,
-          volunteerId,
-          traineeId!,
-          event.branchId,
-          transaction,
-        );
-      }
-
       if (intent === AttendanceIntent.VOLUNTEER_ONLY) {
         await this.attendeeRepository.ensureAttendee(
           volunteerId,
           eventId,
           transaction,
         );
-        await this.attendeeRepository.removePairingsForUsers(
-          eventId,
-          [volunteerId],
-          transaction,
-        );
         if (traineeId) {
-          await this.attendeeRepository.removeAttendee(
-            traineeId,
+          await this.tryCreateAssignedPairingIfCounterpartAttending(
             eventId,
+            event,
+            volunteerId,
+            traineeId,
+            volunteerId,
             transaction,
           );
         }
-      }
-
-      if (intent === AttendanceIntent.TRAINEE_ONLY) {
-        await this.attendeeRepository.ensureAttendee(
-          traineeId!,
-          eventId,
-          transaction,
-        );
-        await this.attendeeRepository.removePairingsForUsers(
-          eventId,
-          [traineeId!],
-          transaction,
-        );
-        await this.attendeeRepository.removeAttendee(
-          volunteerId,
-          eventId,
-          transaction,
-        );
       }
 
       if (intent === AttendanceIntent.NONE) {
@@ -221,6 +246,107 @@ export default class AttendeeService {
     });
 
     return this.getParticipantsByEvent(eventId, actor);
+  }
+
+  private async updateTraineeAttendanceIntent(
+    eventId: string,
+    intent: AttendanceIntent,
+    actor: AuthenticatedUser,
+    traineeId: string,
+    event: Event,
+  ) {
+    this.assertTrainee(actor);
+
+    if (
+      intent !== AttendanceIntent.TRAINEE_ONLY &&
+      intent !== AttendanceIntent.NONE
+    ) {
+      throw new BadRequestException(
+        'Trainees can only update their own attendance',
+      );
+    }
+
+    await this.assertUsersBelongToBranch([traineeId], event.branchId);
+
+    const assignment = await MentorAssignment.findOne({
+      where: {
+        traineeId,
+        branchId: event.branchId,
+        isActive: true,
+      },
+      order: [['startDate', 'DESC']],
+    });
+    const volunteerId = assignment?.mentorId;
+
+    await this.sequelize.transaction(async (transaction) => {
+      if (intent === AttendanceIntent.TRAINEE_ONLY) {
+        await this.attendeeRepository.ensureAttendee(
+          traineeId,
+          eventId,
+          transaction,
+        );
+        if (volunteerId) {
+          await this.tryCreateAssignedPairingIfCounterpartAttending(
+            eventId,
+            event,
+            volunteerId,
+            traineeId,
+            traineeId,
+            transaction,
+          );
+        }
+      }
+
+      if (intent === AttendanceIntent.NONE) {
+        await this.attendeeRepository.removePairingsForUsers(
+          eventId,
+          [traineeId],
+          transaction,
+        );
+        await this.attendeeRepository.removeAttendee(
+          traineeId,
+          eventId,
+          transaction,
+        );
+      }
+    });
+
+    return this.getParticipantsByEvent(eventId, actor);
+  }
+
+  private async tryCreateAssignedPairingIfCounterpartAttending(
+    eventId: string,
+    event: Event,
+    volunteerId: string,
+    traineeId: string,
+    attendingUserId: string,
+    transaction: Transaction,
+  ) {
+    const counterpartId =
+      attendingUserId === volunteerId ? traineeId : volunteerId;
+    const counterpartAttendee =
+      await this.attendeeRepository.findAttendeeByUserEvent(
+        counterpartId,
+        eventId,
+        transaction,
+      );
+
+    if (!counterpartAttendee) {
+      return;
+    }
+
+    await this.assertUsersBelongToBranch(
+      [volunteerId, traineeId],
+      event.branchId,
+    );
+
+    await this.attendeeRepository.createPairingIfUsersUnpaired(
+      eventId,
+      volunteerId,
+      traineeId,
+      event.branchId,
+      transaction,
+    );
   }
 
   public async getParticipantsByEvent(
@@ -371,6 +497,12 @@ export default class AttendeeService {
     }
   }
 
+  private assertTrainee(actor: AuthenticatedUser) {
+    if (!this.actorHasRole(actor, AUTH_ROLES.TRAINEE.id)) {
+      throw new ForbiddenException('Trainee role is required');
+    }
+  }
+
   private assertAdmin(actor: AuthenticatedUser, branchId: string) {
     const isSuperAdmin = this.actorHasRole(actor, AUTH_ROLES.SUPER_ADMIN.id);
     const isBranchAdmin = actor.roles?.some(
@@ -382,6 +514,24 @@ export default class AttendeeService {
     if (!isSuperAdmin && !isBranchAdmin) {
       throw new ForbiddenException('Admin role is required for this branch');
     }
+  }
+
+  private getAdminBranchFilter(actor: AuthenticatedUser) {
+    if (this.actorHasRole(actor, AUTH_ROLES.SUPER_ADMIN.id)) {
+      return undefined;
+    }
+
+    const branchIds =
+      actor.roles
+        ?.filter((role) => role.roleId === AUTH_ROLES.BRANCH_ADMIN.id)
+        .map((role) => role.branchId ?? role.resourceId)
+        .filter((branchId): branchId is string => !!branchId) ?? [];
+
+    if (branchIds.length === 0) {
+      throw new ForbiddenException('Admin role is required');
+    }
+
+    return Array.from(new Set(branchIds));
   }
 
   private assertBranchAccess(actor: AuthenticatedUser, branchId: string) {
