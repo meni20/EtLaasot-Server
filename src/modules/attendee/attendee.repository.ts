@@ -5,6 +5,7 @@ import EventPairing from './entities/event-pairing.entity';
 import User from '../user/entities/user.entity';
 import Event from '../event/entities/event.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
+import Branch from '../branch/entities/branch.entity';
 import { AttendeeRsvpStatus } from './attendee.constants';
 
 @Injectable()
@@ -70,6 +71,29 @@ export default class AttendeeRepository {
           include: [{ model: UserRole }],
         },
       ],
+      limit: 1000,
+    });
+  }
+
+  public async getRegisteredEventsByUser(userId: string, branchIds?: string[]) {
+    return Attendee.findAll({
+      where: { userId },
+      include: [
+        {
+          model: Event,
+          as: 'event',
+          required: true,
+          where: branchIds?.length ? { branchId: { [Op.in]: branchIds } } : {},
+          include: [
+            {
+              model: Branch,
+              as: 'branch',
+              attributes: ['id', 'name', 'city', 'address'],
+            },
+          ],
+        },
+      ],
+      order: [[{ model: Event, as: 'event' }, 'startDate', 'ASC']],
       limit: 1000,
     });
   }
@@ -153,6 +177,53 @@ export default class AttendeeRepository {
       [mentorId, traineeId],
       transaction,
     );
+    return EventPairing.create(
+      { eventId, mentorId, traineeId, branchId },
+      { transaction },
+    );
+  }
+
+  public async createPairingIfUsersUnpaired(
+    eventId: string,
+    mentorId: string,
+    traineeId: string,
+    branchId: string,
+    transaction: Transaction,
+  ) {
+    const activePairings = await EventPairing.findAll({
+      where: {
+        eventId,
+        [Op.or]: [{ mentorId }, { traineeId }],
+      },
+      transaction,
+    });
+
+    const exactActivePairing = activePairings.find(
+      (pairing) =>
+        pairing.mentorId === mentorId && pairing.traineeId === traineeId,
+    );
+    if (exactActivePairing) {
+      return exactActivePairing;
+    }
+
+    if (activePairings.length > 0) {
+      return null;
+    }
+
+    const existingPairing = await EventPairing.findOne({
+      where: { eventId, mentorId, traineeId },
+      paranoid: false,
+      transaction,
+    });
+
+    if (existingPairing) {
+      if ((existingPairing as any).deletedAt) {
+        await existingPairing.restore({ transaction });
+      }
+
+      return existingPairing.reload({ transaction });
+    }
+
     return EventPairing.create(
       { eventId, mentorId, traineeId, branchId },
       { transaction },

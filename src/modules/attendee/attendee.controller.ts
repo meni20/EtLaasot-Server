@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Delete,
+  Get,
   Param,
   Post,
   Put,
@@ -53,6 +54,18 @@ export default class AttendeeController {
     return await this.attendeeService.updateAttendanceIntent(
       eventId,
       body.intent,
+      req.user,
+    );
+  }
+
+  @Get('user/:userId/events')
+  public async getRegisteredEventsByUser(
+    @Param('userId') userId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForUserUuid(req.user, userId);
+    return await this.attendeeService.getRegisteredEventsByUser(
+      userId,
       req.user,
     );
   }

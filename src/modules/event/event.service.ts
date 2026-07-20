@@ -38,6 +38,17 @@ export interface EventAiInsights {
   notes: EventAiInsightNote[];
 }
 
+export interface CalendarMonthBackgroundResponse {
+  id: string;
+  branchId: string;
+  monthKey: string;
+  imagePath: string;
+  imageUrl: string | null;
+  uploadedBy: string | null;
+  createdAt: Date;
+  updatedAt: Date;
+}
+
 @Injectable()
 export default class EventService {
   private readonly logger = new Logger(EventService.name);
@@ -246,6 +257,78 @@ export default class EventService {
     return this.serializeEvent(event);
   }
 
+  public async getCalendarMonthBackground(branchId: string, monthKey: string) {
+    this.assertCalendarMonthKey(monthKey);
+    const background = await this.eventRepository.findCalendarBackground(
+      branchId,
+      monthKey,
+    );
+
+    return background ? this.serializeCalendarBackground(background) : null;
+  }
+
+  public async uploadCalendarMonthBackground(
+    branchId: string,
+    monthKey: string,
+    file: Express.Multer.File,
+    uploadedBy?: string | null,
+  ) {
+    this.assertCalendarMonthKey(monthKey);
+    const previousBackground =
+      await this.eventRepository.findCalendarBackground(branchId, monthKey);
+    const previousImagePath = previousBackground?.imagePath;
+    const imagePath =
+      await this.supabaseStorageService.uploadCalendarMonthBackground(
+        branchId,
+        monthKey,
+        file,
+      );
+
+    try {
+      const background = await this.eventRepository.upsertCalendarBackground({
+        branchId,
+        monthKey,
+        imagePath,
+        uploadedBy: uploadedBy ?? null,
+      });
+
+      await this.deleteEventImageBestEffort(
+        previousImagePath,
+        'previous calendar background after replacement',
+        `${branchId}/${monthKey}`,
+      );
+
+      return this.serializeCalendarBackground(background);
+    } catch (error) {
+      await this.deleteEventImageBestEffort(
+        imagePath,
+        'newly uploaded calendar background after DB update failure',
+        `${branchId}/${monthKey}`,
+      );
+      throw error;
+    }
+  }
+
+  public async removeCalendarMonthBackground(branchId: string, monthKey: string) {
+    this.assertCalendarMonthKey(monthKey);
+    const background = await this.eventRepository.deleteCalendarBackground(
+      branchId,
+      monthKey,
+    );
+
+    if (!background) {
+      return { ok: true };
+    }
+
+    await this.deleteEventImageBestEffort(
+      background.imagePath,
+      'removed calendar background',
+      `${branchId}/${monthKey}`,
+    );
+
+    return { ok: true };
+  }
+
   public async getEventAiInsights(eventId: string): Promise<EventAiInsights> {
     const event = await this.eventRepository.findById(eventId);
 
@@ -328,6 +411,23 @@ export default class EventService {
       ...plainEvent,
       imageUrl: this.supabaseStorageService.getPublicUrl(plainEvent.imagePath),
     };
+  }
+
+  private serializeCalendarBackground(
+    background: any,
+  ): CalendarMonthBackgroundResponse {
+    const plain = background.toJSON() as CalendarMonthBackgroundResponse;
+
+    return {
+      ...plain,
+      imageUrl: this.supabaseStorageService.getPublicUrl(plain.imagePath),
+    };
+  }
+
+  private assertCalendarMonthKey(monthKey: string) {
+    if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(monthKey)) {
+      throw new BadRequestException('Invalid calendar month key');
+    }
   }
 
   private async deleteEventImageBestEffort(
