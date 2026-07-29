@@ -22,6 +22,13 @@ type AuthenticatedUser = {
   activeBranch?: string;
 };
 
+export interface EventAssignmentRecipient {
+  mentorId: string;
+  mentorName: string;
+  mentorEmail: string | null;
+  traineeName: string | null;
+}
+
 @Injectable()
 export default class AttendeeService {
   constructor(
@@ -390,6 +397,41 @@ export default class AttendeeService {
         this.toSafeAttendee(attendee),
       ),
     };
+  }
+
+  public async getEventAssignmentRecipients(
+    eventId: string,
+  ): Promise<EventAssignmentRecipient[]> {
+    const { attendees, pairings } =
+      await this.attendeeRepository.getStructuredParticipants(eventId);
+    const pairingByMentorId = new Map(
+      pairings.map((pairing) => [pairing.mentorId, pairing]),
+    );
+    const seenMentorIds = new Set<string>();
+    const recipients: EventAssignmentRecipient[] = [];
+
+    attendees.forEach((attendee) => {
+      if (
+        seenMentorIds.has(attendee.userId) ||
+        attendee.rsvpStatus === AttendeeRsvpStatus.DECLINED ||
+        !this.userHasRole(attendee.user, AUTH_ROLES.VOLUNTEER.id)
+      ) {
+        return;
+      }
+
+      seenMentorIds.add(attendee.userId);
+
+      const pairing = pairingByMentorId.get(attendee.userId);
+
+      recipients.push({
+        mentorId: attendee.userId,
+        mentorName: attendee.user?.name ?? 'ללא שם',
+        mentorEmail: attendee.user?.email ?? null,
+        traineeName: pairing?.trainee?.name ?? null,
+      });
+    });
+
+    return recipients;
   }
 
   public async createManualPairing(

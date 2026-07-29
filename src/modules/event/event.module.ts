@@ -12,6 +12,7 @@ import VolunteerActivity from '../activity/entities/activity.entity';
 import ActivityRepository from '../activity/activity.repository';
 import { AiModule } from '../ai/ai.module';
 import CalendarMonthBackground from './entities/calendar-month-background.entity';
+import { EmailModule } from '../email/email.module';
 
 @Module({
   imports: [
@@ -25,6 +26,7 @@ import CalendarMonthBackground from './entities/calendar-month-background.entity
     forwardRef(() => AttendeeModule),
     SupabaseStorageModule,
     AiModule,
+    EmailModule,
   ],
   providers: [EventService, EventRepository, ActivityRepository],
   controllers: [EventController],
