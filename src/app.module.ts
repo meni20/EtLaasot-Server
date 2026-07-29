@@ -11,6 +11,7 @@ import { AuthModule } from './modules/auth/auth.module';
 import { BranchModule } from './modules/branch/branch.module';
 import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assignment.module';
 import { ActivityModule } from './modules/activity/activity.module';
+import { EmailModule } from './modules/email/email.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -97,6 +98,7 @@ const getDbDialectOptions = () => {
     BranchModule,
     MentorAssignmentModule,
     ActivityModule,
+    EmailModule,
   ],
   controllers: [AppController],
   providers: [AppService],

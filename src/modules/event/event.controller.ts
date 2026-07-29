@@ -156,6 +156,15 @@ export default class EventController {
     return await this.eventService.generateAiSummary(eventId);
   }
 
+  @Post(':eventId/send-assignments')
+  public async sendEventAssignments(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.sendEventAssignments(eventId);
+  }
+
   @Get('get-all-events')
   public async getAllEvents(
     @Query('branchId') branchId?: string,

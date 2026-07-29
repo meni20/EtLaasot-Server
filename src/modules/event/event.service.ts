@@ -14,6 +14,7 @@ import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import ActivityRepository from '../activity/activity.repository';
 import { AiService } from '../ai/ai.service';
 import VolunteerActivity from '../activity/entities/activity.entity';
+import { EmailService } from '../email/email.service';
 
 type EventInput = Omit<IEvent, 'startDate' | 'endDate' | 'imageUrl'> & {
   startDate: string | Date;
@@ -49,6 +50,22 @@ export interface CalendarMonthBackgroundResponse {
   updatedAt: Date;
 }
 
+export interface EventAssignmentEmailDetail {
+  userId: string;
+  name: string;
+  reason: string;
+}
+
+export interface EventAssignmentEmailResult {
+  eventId: string;
+  totalAttendingMentors: number;
+  sentCount: number;
+  skippedCount: number;
+  failedCount: number;
+  skipped: EventAssignmentEmailDetail[];
+  failed: EventAssignmentEmailDetail[];
+}
+
 @Injectable()
 export default class EventService {
   private readonly logger = new Logger(EventService.name);
@@ -59,6 +76,7 @@ export default class EventService {
     private readonly supabaseStorageService: SupabaseStorageService,
     private readonly activityRepository: ActivityRepository,
     private readonly aiService: AiService,
+    private readonly emailService: EmailService,
   ) {}
 
   public async createEvent(eventData: EventInput) {
@@ -402,6 +420,65 @@ export default class EventService {
     return this.getEventAiInsights(eventId);
   }
 
+  public async sendEventAssignments(
+    eventId: string,
+  ): Promise<EventAssignmentEmailResult> {
+    const event = await this.eventRepository.findById(eventId);
+
+    if (!event) {
+      throw new NotFoundException('Event not found');
+    }
+
+    const recipients =
+      await this.attendeeService.getEventAssignmentRecipients(eventId);
+    const result: EventAssignmentEmailResult = {
+      eventId,
+      totalAttendingMentors: recipients.length,
+      sentCount: 0,
+      skippedCount: 0,
+      failedCount: 0,
+      skipped: [],
+      failed: [],
+    };
+
+    for (const recipient of recipients) {
+      if (!this.isValidEmail(recipient.mentorEmail)) {
+        result.skippedCount += 1;
+        result.skipped.push({
+          userId: recipient.mentorId,
+          name: recipient.mentorName,
+          reason: 'missing_email',
+        });
+        this.logger.log(
+          `Event assignment email skipped: eventId=${eventId} userId=${recipient.mentorId} reason=missing_email`,
+        );
+        continue;
+      }
+
+      try {
+        await this.emailService.sendEmail(
+          this.buildAssignmentEmail(event, recipient),
+        );
+        result.sentCount += 1;
+        this.logger.log(
+          `Event assignment email sent: eventId=${eventId} userId=${recipient.mentorId}`,
+        );
+      } catch (error) {
+        result.failedCount += 1;
+        result.failed.push({
+          userId: recipient.mentorId,
+          name: recipient.mentorName,
+          reason: 'email_send_failed',
+        });
+        this.logger.warn(
+          `Event assignment email failed: eventId=${eventId} userId=${recipient.mentorId}`,
+        );
+      }
+    }
+
+    return result;
+  }
+
   private serializeEvent(event: Event): IEvent {
     const plainEvent = event.toJSON() as IEvent;
     delete plainEvent.aiSummary;
@@ -475,5 +552,106 @@ export default class EventService {
       createdAt: activity.createdAt,
       updatedAt: activity.updatedAt,
     };
+  }
+
+  private buildAssignmentEmail(
+    event: Event,
+    recipient: {
+      mentorName: string;
+      mentorEmail: string | null;
+      traineeName: string | null;
+    },
+  ) {
+    const eventName = event.name;
+    const eventDate = this.formatEventDate(event.startDate);
+    const eventTime = this.formatEventTime(event.startDate);
+    const eventLocation = event.address || 'לא צוין';
+    const traineeLine = recipient.traineeName
+      ? `החניך/ה המשובץ/ת אליך: ${recipient.traineeName}`
+      : 'נכון לעכשיו לא קיים עבורך שיבוץ לחניך באירוע זה.';
+    const subject = `שיבוץ לאירוע: ${eventName}`;
+    const text = [
+      `שלום ${recipient.mentorName},`,
+      '',
+      `את/ה רשום/ה כמשתתף/ת באירוע "${eventName}".`,
+      '',
+      `תאריך: ${eventDate}`,
+      `שעה: ${eventTime}`,
+      `מיקום: ${eventLocation}`,
+      '',
+      traineeLine,
+      '',
+      'בברכה,',
+      'עת לעשות',
+    ].join('\n');
+    const html = `
+      <div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.7; color: #222;">
+        <p>שלום ${this.escapeHtml(recipient.mentorName)},</p>
+        <p>את/ה רשום/ה כמשתתף/ת באירוע &quot;${this.escapeHtml(eventName)}&quot;.</p>
+        <p>
+          <strong>תאריך:</strong> ${this.escapeHtml(eventDate)}<br />
+          <strong>שעה:</strong> ${this.escapeHtml(eventTime)}<br />
+          <strong>מיקום:</strong> ${this.escapeHtml(eventLocation)}
+        </p>
+        <p>${this.escapeHtml(traineeLine)}</p>
+        <p>בברכה,<br />עת לעשות</p>
+      </div>
+    `;
+
+    return {
+      to: recipient.mentorEmail!,
+      subject,
+      text,
+      html,
+    };
+  }
+
+  private isValidEmail(email?: string | null) {
+    return Boolean(email && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email));
+  }
+
+  private formatEventDate(value: Date | string | null | undefined) {
+    const date = this.toValidDate(value);
+
+    if (!date) {
+      return 'לא צוין';
+    }
+
+    return new Intl.DateTimeFormat('he-IL', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+    }).format(date);
+  }
+
+  private formatEventTime(value: Date | string | null | undefined) {
+    const date = this.toValidDate(value);
+
+    if (!date) {
+      return 'לא צוין';
+    }
+
+    return new Intl.DateTimeFormat('he-IL', {
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(date);
+  }
+
+  private toValidDate(value: Date | string | null | undefined) {
+    if (!value) {
+      return null;
+    }
+
+    const date = new Date(value);
+    return Number.isNaN(date.getTime()) ? null : date;
+  }
+
+  private escapeHtml(value: string) {
+    return value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
   }
 }
