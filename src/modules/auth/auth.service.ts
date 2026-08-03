@@ -115,15 +115,16 @@ export default class AuthService {
     newPassword: string,
     confirmPassword: string,
   ) {
-    if (newPassword !== confirmPassword) {
-      throw new BadRequestException('Password confirmation does not match');
+    const normalizedNewPassword = String(newPassword ?? '').trim();
+    const normalizedConfirmation = String(confirmPassword ?? '').trim();
+
+    if (normalizedNewPassword !== normalizedConfirmation) {
+      throw new BadRequestException('אימות הסיסמה אינו תואם');
     }
 
-    if (currentPassword === newPassword) {
-      throw new BadRequestException('New password must be different');
+    if (currentPassword === normalizedNewPassword) {
+      throw new BadRequestException('הסיסמה החדשה צריכה להיות שונה');
     }
-
-    validateNewPassword(newPassword);
 
     const user = await this.userService.findByIdForAuth(userId);
     if (!user?.passwordHash) {
@@ -131,6 +132,11 @@ export default class AuthService {
     }
 
     await this.assertLoginAllowed(user);
+
+    validateNewPassword(normalizedNewPassword, {
+      nationalIdHash: user.nationalIdHash,
+      phoneNumber: user.phoneNumber,
+    });
 
     if (
       this.isTemporaryPasswordExpired(
@@ -151,7 +157,7 @@ export default class AuthService {
       throw this.invalidCredentials();
     }
 
-    const passwordHash = await hashPassword(newPassword);
+    const passwordHash = await hashPassword(normalizedNewPassword);
     await this.userService.updatePassword(userId, passwordHash, false, null);
 
     return { ok: true };

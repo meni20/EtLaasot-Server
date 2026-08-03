@@ -164,6 +164,8 @@ export default class UserRepository {
       attributes: [
         'id',
         'name',
+        'nationalIdHash',
+        'phoneNumber',
         'passwordHash',
         'mustChangePassword',
         'failedLoginAttempts',

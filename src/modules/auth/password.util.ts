@@ -1,8 +1,9 @@
 import { BadRequestException } from '@nestjs/common';
 import { randomInt } from 'crypto';
 import * as argon2 from 'argon2';
+import { getNationalIdDetails } from '../user/national-id.util';
 
-const MIN_PASSWORD_LENGTH = 10;
+const MIN_PASSWORD_LENGTH = 6;
 const MAX_PASSWORD_LENGTH = 128;
 const TEMPORARY_PASSWORD_LENGTH = 18;
 const LOWERCASE = 'abcdefghijkmnopqrstuvwxyz';
@@ -10,14 +11,18 @@ const UPPERCASE = 'ABCDEFGHJKLMNPQRSTUVWXYZ';
 const DIGITS = '23456789';
 const SYMBOLS = '!@#$%^&*()-_=+';
 const PASSWORD_ALPHABET = `${LOWERCASE}${UPPERCASE}${DIGITS}${SYMBOLS}`;
-const WEAK_PASSWORD_PATTERNS = [
-  /password/i,
-  /qwerty/i,
-  /letmein/i,
-  /123456/,
-  /111111/,
-  /000000/,
-];
+const COMMON_PASSWORDS = new Set([
+  '123456',
+  '111111',
+  '000000',
+  'password',
+  'qwerty',
+]);
+
+type PasswordIdentity = {
+  nationalIdHash?: string | null;
+  phoneNumber?: string | null;
+};
 
 const pick = (alphabet: string) => alphabet[randomInt(alphabet.length)];
 
@@ -67,40 +72,58 @@ export const generateTemporaryPassword = () => {
   return shuffle(characters);
 };
 
-export const validateNewPassword = (password: string) => {
-  if (!password || !password.trim()) {
-    throw new BadRequestException('Password is required');
+export const validateNewPassword = (
+  password: string,
+  identity: PasswordIdentity = {},
+) => {
+  const normalizedPassword = String(password ?? '').trim();
+
+  if (!normalizedPassword) {
+    throw new BadRequestException('יש להזין סיסמה חדשה');
   }
 
-  if (password.length < MIN_PASSWORD_LENGTH) {
+  if (normalizedPassword.length < MIN_PASSWORD_LENGTH) {
     throw new BadRequestException(
-      `Password must be at least ${MIN_PASSWORD_LENGTH} characters`,
+      'הסיסמה צריכה להכיל לפחות 6 תווים ולא להיות סיסמה נפוצה מדי',
     );
   }
 
-  if (password.length > MAX_PASSWORD_LENGTH) {
+  if (normalizedPassword.length > MAX_PASSWORD_LENGTH) {
+    throw new BadRequestException('הסיסמה ארוכה מדי');
+  }
+
+  if (COMMON_PASSWORDS.has(normalizedPassword.toLowerCase())) {
     throw new BadRequestException(
-      `Password must be at most ${MAX_PASSWORD_LENGTH} characters`,
+      'הסיסמה צריכה להכיל לפחות 6 תווים ולא להיות סיסמה נפוצה מדי',
     );
   }
 
-  if (!/[a-z]/.test(password) || !/[A-Z]/.test(password)) {
-    throw new BadRequestException(
-      'Password must include uppercase and lowercase letters',
-    );
+  const passwordDigits = normalizedPassword.replace(/[\s()+-]/g, '');
+  const phoneDigits = String(identity.phoneNumber ?? '').replace(/\D/g, '');
+
+  if (/^\d+$/.test(passwordDigits) && phoneDigits === passwordDigits) {
+    throw new BadRequestException('הסיסמה לא יכולה להיות זהה למספר הטלפון');
   }
 
-  if (!/\d/.test(password)) {
-    throw new BadRequestException('Password must include a number');
+  if (identity.nationalIdHash && /^\d{5,9}$/.test(normalizedPassword)) {
+    let matchesNationalId = false;
+
+    try {
+      matchesNationalId =
+        getNationalIdDetails(normalizedPassword).nationalIdHash ===
+        identity.nationalIdHash;
+    } catch {
+      matchesNationalId = false;
+    }
+
+    if (matchesNationalId) {
+      throw new BadRequestException(
+        'הסיסמה לא יכולה להיות זהה לתעודת הזהות',
+      );
+    }
   }
 
-  if (!/[^A-Za-z0-9]/.test(password)) {
-    throw new BadRequestException('Password must include a symbol');
-  }
-
-  if (WEAK_PASSWORD_PATTERNS.some((pattern) => pattern.test(password))) {
-    throw new BadRequestException('Password is too weak');
-  }
+  return normalizedPassword;
 };
 
 export const getTemporaryPasswordExpiry = () => {
