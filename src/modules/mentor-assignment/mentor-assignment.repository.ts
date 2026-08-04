@@ -104,6 +104,7 @@ export default class MentorAssignmentRepository {
 
     return await User.findAll({
       where: whereClause,
+      attributes: { exclude: ['allergies'] },
       include: [
         {
           model: UserRole,

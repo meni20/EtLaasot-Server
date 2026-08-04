@@ -119,6 +119,10 @@ export default class User extends Model<IUser> {
 
   @AllowNull
   @Column(DataType.TEXT)
+  declare allergies: string | null;
+
+  @AllowNull
+  @Column(DataType.TEXT)
   declare notes: string | null;
 
   @AllowNull

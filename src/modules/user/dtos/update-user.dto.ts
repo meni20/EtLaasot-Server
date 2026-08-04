@@ -42,6 +42,14 @@ export class UpdateUserDto {
   )
   @IsOptional()
   @IsString()
+  @MaxLength(1000)
+  allergies?: string | null;
+
+  @Transform(({ value }) =>
+    typeof value === 'string' ? value.trim() || null : value,
+  )
+  @IsOptional()
+  @IsString()
   @MaxLength(2000)
   notes?: string | null;
 

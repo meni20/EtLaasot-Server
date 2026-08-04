@@ -94,7 +94,10 @@ export default class EventController {
     @Req() req: any,
   ) {
     this.authorizationService.assertAdminForBranch(req.user, branchId);
-    return await this.eventService.getCalendarMonthBackground(branchId, monthKey);
+    return await this.eventService.getCalendarMonthBackground(
+      branchId,
+      monthKey,
+    );
   }
 
   @Put('calendar-background/:branchId/:monthKey/image')
@@ -227,6 +230,18 @@ export default class EventController {
     @Req() req: any,
   ) {
     return await this.eventService.getParticipantsByEvent(eventId, req.user);
+  }
+
+  @Get(':eventId/participants/print')
+  public async getPrintableParticipantsByEvent(
+    @Param('eventId') eventId: string,
+    @Req() req: any,
+  ) {
+    await this.authorizationService.assertAdminForEvent(req.user, eventId);
+    return await this.eventService.getPrintableParticipantsByEvent(
+      eventId,
+      req.user,
+    );
   }
 
   @Post(':eventId/pairings')

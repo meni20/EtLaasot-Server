@@ -367,6 +367,25 @@ export default class AttendeeService {
 
     const { attendees, pairings } =
       await this.attendeeRepository.getStructuredParticipants(eventId);
+    return this.buildParticipantsResponse(attendees, pairings);
+  }
+
+  public async getPrintableParticipantsByEvent(
+    eventId: string,
+    actor: AuthenticatedUser,
+  ) {
+    const event = await this.getEventOrThrow(eventId);
+    this.assertAdmin(actor, event.branchId);
+
+    const { attendees, pairings } =
+      await this.attendeeRepository.getStructuredParticipants(eventId, {
+        includePrintProfile: true,
+      });
+
+    return this.buildParticipantsResponse(attendees, pairings);
+  }
+
+  private buildParticipantsResponse(attendees: any[], pairings: any[]) {
     const pairedUserIds = new Set<string>();
     const paired = pairings.map((pairing) => {
       pairedUserIds.add(pairing.mentorId);
