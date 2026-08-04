@@ -38,14 +38,21 @@ export default class UserController {
     @Body() userData: UpdateCurrentUserProfileDto,
     @Req() req: any,
   ) {
-    const allowedFields = ['email', 'phoneNumber', 'address'];
+    const allowedFields = [
+      'email',
+      'phoneNumber',
+      'address',
+      'shirtSize',
+      'customShirtSize',
+      'allergies',
+    ];
     const unknownFields = Object.keys(userData ?? {}).filter(
       (field) => !allowedFields.includes(field),
     );
 
     if (unknownFields.length > 0) {
       throw new BadRequestException(
-        'Only email, phoneNumber and address can be updated',
+        'Only email, phoneNumber, address, shirt size and allergies can be updated',
       );
     }
 

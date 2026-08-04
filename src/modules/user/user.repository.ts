@@ -34,7 +34,7 @@ export default class UserRepository {
         'failedLoginAttempts',
         'lockedUntil',
         'temporaryPasswordExpiresAt',
-        ...(includeNotes ? [] : ['notes', 'parentName']),
+        ...(includeNotes ? [] : ['notes', 'parentName', 'allergies']),
       ],
     };
 
@@ -164,6 +164,8 @@ export default class UserRepository {
       attributes: [
         'id',
         'name',
+        'nationalIdHash',
+        'phoneNumber',
         'passwordHash',
         'mustChangePassword',
         'failedLoginAttempts',
@@ -290,6 +292,9 @@ export default class UserRepository {
       email?: string | null;
       phoneNumber?: string;
       address?: string | null;
+      shirtSize?: ShirtSize | null;
+      customShirtSize?: string | null;
+      allergies?: string | null;
     },
   ) {
     const user = await User.findByPk(id);
@@ -309,6 +314,7 @@ export default class UserRepository {
       gender?: UserGender | null;
       shirtSize?: ShirtSize | null;
       customShirtSize?: string | null;
+      allergies?: string | null;
       notes?: string | null;
       parentName?: string | null;
       phoneNumber: string;

@@ -119,7 +119,12 @@ export default class EventRepository {
         branchId,
         startDate: { [Op.between]: [startDate, endDate] },
       },
-      include: [{ model: Attendee, include: [{ model: User }] }],
+      include: [
+        {
+          model: Attendee,
+          include: [{ model: User, attributes: { exclude: ['allergies'] } }],
+        },
+      ],
       order: [['start_date', 'ASC']],
       limit: 1000,
     });

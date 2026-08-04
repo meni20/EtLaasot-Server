@@ -245,14 +245,21 @@ export default class AttendeeRepository {
     return EventPairing.destroy({ where: { id: pairingId }, transaction });
   }
 
-  public async getStructuredParticipants(eventId: string) {
+  public async getStructuredParticipants(
+    eventId: string,
+    options?: { includePrintProfile?: boolean },
+  ) {
+    const userAttributes = options?.includePrintProfile
+      ? ['id', 'name', 'shirtSize', 'customShirtSize', 'allergies']
+      : ['id', 'name', 'email', 'phoneNumber', 'branchId'];
+
     const [attendees, pairings] = await Promise.all([
       Attendee.findAll({
         where: { eventId },
         include: [
           {
             model: User,
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: userAttributes,
             include: [{ model: UserRole }],
           },
         ],
@@ -265,12 +272,12 @@ export default class AttendeeRepository {
           {
             model: User,
             as: 'mentor',
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: userAttributes,
           },
           {
             model: User,
             as: 'trainee',
-            attributes: ['id', 'name', 'email', 'phoneNumber', 'branchId'],
+            attributes: userAttributes,
           },
         ],
         order: [['createdAt', 'ASC']],
