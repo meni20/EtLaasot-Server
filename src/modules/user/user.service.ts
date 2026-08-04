@@ -149,6 +149,7 @@ export default class UserService {
         userData.shirtSize === 'OTHER'
           ? userData.customShirtSize?.trim() || null
           : null,
+      allergies: userData.allergies?.trim() || null,
       notes: userData.notes?.trim() || null,
       parentName: userData.parentName?.trim() || null,
     };
@@ -427,6 +428,9 @@ export default class UserService {
       email?: string | null;
       phoneNumber?: string;
       address?: string | null;
+      shirtSize?: ShirtSize | null;
+      customShirtSize?: string | null;
+      allergies?: string | null;
     },
   ) {
     try {
@@ -434,6 +438,9 @@ export default class UserService {
         email?: string | null;
         phoneNumber?: string;
         address?: string | null;
+        shirtSize?: ShirtSize | null;
+        customShirtSize?: string | null;
+        allergies?: string | null;
       } = {};
 
       if (Object.prototype.hasOwnProperty.call(data, 'email')) {
@@ -452,6 +459,18 @@ export default class UserService {
           data.address === undefined || data.address === null
             ? null
             : data.address.trim() || null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, 'shirtSize')) {
+        updateData.shirtSize = data.shirtSize ?? null;
+        updateData.customShirtSize =
+          data.shirtSize === 'OTHER'
+            ? data.customShirtSize?.trim() || null
+            : null;
+      }
+
+      if (Object.prototype.hasOwnProperty.call(data, 'allergies')) {
+        updateData.allergies = data.allergies?.trim() || null;
       }
 
       const user = await this.userRepository.updateProfile(userId, updateData);
@@ -478,6 +497,7 @@ export default class UserService {
       gender?: UserGender | null;
       shirtSize?: ShirtSize | null;
       customShirtSize?: string | null;
+      allergies?: string | null;
       notes?: string | null;
       parentName?: string | null;
       phoneNumber: string;
@@ -497,6 +517,7 @@ export default class UserService {
           data.shirtSize === 'OTHER'
             ? data.customShirtSize?.trim() || null
             : null,
+        allergies: data.allergies?.trim() || null,
         notes: data.notes?.trim() || null,
         ...(Object.prototype.hasOwnProperty.call(data, 'parentName')
           ? { parentName: data.parentName?.trim() || null }
@@ -547,6 +568,7 @@ export default class UserService {
       dateOfBirth: plain.dateOfBirth ?? null,
       shirtSize: plain.shirtSize ?? null,
       customShirtSize: plain.customShirtSize ?? null,
+      allergies: plain.allergies ?? null,
       branchId: plain.branchId ?? null,
       createdAt: plain.createdAt,
       updatedAt: plain.updatedAt,

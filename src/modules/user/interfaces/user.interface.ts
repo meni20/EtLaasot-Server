@@ -27,6 +27,7 @@ export interface IUser {
   dateOfBirth?: string | null;
   shirtSize?: ShirtSize | null;
   customShirtSize?: string | null;
+  allergies?: string | null;
   notes?: string | null;
   parentName?: string | null;
   branchId?: string | null;

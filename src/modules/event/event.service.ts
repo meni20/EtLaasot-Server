@@ -187,6 +187,13 @@ export default class EventService {
     return await this.attendeeService.getParticipantsByEvent(eventId, actor);
   }
 
+  public async getPrintableParticipantsByEvent(eventId: string, actor: any) {
+    return await this.attendeeService.getPrintableParticipantsByEvent(
+      eventId,
+      actor,
+    );
+  }
+
   public async createManualPairing(
     eventId: string,
     mentorId: string,
@@ -327,7 +334,10 @@ export default class EventService {
     }
   }
 
-  public async removeCalendarMonthBackground(branchId: string, monthKey: string) {
+  public async removeCalendarMonthBackground(
+    branchId: string,
+    monthKey: string,
+  ) {
     this.assertCalendarMonthKey(monthKey);
     const background = await this.eventRepository.deleteCalendarBackground(
       branchId,
