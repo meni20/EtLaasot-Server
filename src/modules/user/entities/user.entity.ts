@@ -19,6 +19,7 @@ import UserRole from 'src/modules/user-role/enitites/user-role.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
 import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 import { maskNationalIdLast4 } from '../national-id.util';
+import TraineeMedication from 'src/modules/trainee-medication/entities/trainee-medication.entity';
 
 @Table({
   tableName: 'user',
@@ -157,6 +158,9 @@ export default class User extends Model<IUser> {
 
   @HasMany(() => VolunteerActivity, 'traineeId')
   declare traineeActivities: VolunteerActivity[];
+
+  @HasMany(() => TraineeMedication, 'traineeUuid')
+  declare traineeMedications: TraineeMedication[];
 
   toJSON() {
     const values = { ...super.toJSON() } as Record<string, unknown>;
