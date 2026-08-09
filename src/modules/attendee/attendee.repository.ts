@@ -7,6 +7,7 @@ import Event from '../event/entities/event.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
 import Branch from '../branch/entities/branch.entity';
 import { AttendeeRsvpStatus } from './attendee.constants';
+import TraineeMedication from '../trainee-medication/entities/trainee-medication.entity';
 
 @Injectable()
 export default class AttendeeRepository {
@@ -252,6 +253,20 @@ export default class AttendeeRepository {
     const userAttributes = options?.includePrintProfile
       ? ['id', 'name', 'shirtSize', 'customShirtSize', 'allergies']
       : ['id', 'name', 'email', 'phoneNumber', 'branchId'];
+    const activeMedicationsInclude = () => ({
+      model: TraineeMedication,
+      as: 'traineeMedications',
+      attributes: [
+        'id',
+        'medicationName',
+        'dosage',
+        'frequency',
+        'schedule',
+        'isActive',
+      ],
+      where: { isActive: true },
+      required: false,
+    });
 
     const [attendees, pairings] = await Promise.all([
       Attendee.findAll({
@@ -260,7 +275,12 @@ export default class AttendeeRepository {
           {
             model: User,
             attributes: userAttributes,
-            include: [{ model: UserRole }],
+            include: [
+              { model: UserRole },
+              ...(options?.includePrintProfile
+                ? [activeMedicationsInclude()]
+                : []),
+            ],
           },
         ],
         order: [['createdAt', 'ASC']],
@@ -278,6 +298,9 @@ export default class AttendeeRepository {
             model: User,
             as: 'trainee',
             attributes: userAttributes,
+            ...(options?.includePrintProfile
+              ? { include: [activeMedicationsInclude()] }
+              : {}),
           },
         ],
         order: [['createdAt', 'ASC']],

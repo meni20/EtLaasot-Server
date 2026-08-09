@@ -1,6 +1,7 @@
 import Attendee from './entities/attendee.entity';
 import EventPairing from './entities/event-pairing.entity';
 import AttendeeRepository from './attendee.repository';
+import TraineeMedication from '../trainee-medication/entities/trainee-medication.entity';
 
 describe('AttendeeRepository participant projections', () => {
   const repository = new AttendeeRepository();
@@ -22,6 +23,11 @@ describe('AttendeeRepository participant projections', () => {
 
     expect(userAttributes).not.toContain('allergies');
     expect(userAttributes).not.toContain('shirtSize');
+    expect(attendeeQuery.include[0].include).not.toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ model: TraineeMedication }),
+      ]),
+    );
   });
 
   it('selects shirt size and allergies for the protected print projection', async () => {
@@ -47,5 +53,30 @@ describe('AttendeeRepository participant projections', () => {
     expect(attendeeUserAttributes).toEqual(expectedAttributes);
     expect(mentorAttributes).toEqual(expectedAttributes);
     expect(traineeAttributes).toEqual(expectedAttributes);
+
+    const attendeeMedicationInclude = attendeeQuery.include[0].include.find(
+      (include: any) => include.model === TraineeMedication,
+    );
+    const traineeMedicationInclude = pairingQuery.include[1].include.find(
+      (include: any) => include.model === TraineeMedication,
+    );
+
+    expect(attendeeMedicationInclude).toEqual(
+      expect.objectContaining({
+        as: 'traineeMedications',
+        where: { isActive: true },
+        required: false,
+      }),
+    );
+    expect(attendeeMedicationInclude.attributes).toEqual([
+      'id',
+      'medicationName',
+      'dosage',
+      'frequency',
+      'schedule',
+      'isActive',
+    ]);
+    expect(traineeMedicationInclude).toEqual(attendeeMedicationInclude);
+    expect(pairingQuery.include[0].include).toBeUndefined();
   });
 });
