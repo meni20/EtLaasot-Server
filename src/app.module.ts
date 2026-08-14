@@ -82,7 +82,8 @@ const getDbDialectOptions = () => {
       dialectOptions: getDbDialectOptions(),
 
       autoLoadModels: true,
-      sync: getBooleanEnv('DB_SYNC', false) ? { alter: false } : undefined,
+      synchronize: getBooleanEnv('DB_SYNC', false),
+      sync: { alter: false },
     }),
 
     SequelizeModule.forFeature([Role]),

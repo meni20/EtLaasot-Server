@@ -1,11 +1,12 @@
 import {
   BadRequestException,
+  ConflictException,
   ForbiddenException,
   Injectable,
   InternalServerErrorException,
   NotFoundException,
 } from '@nestjs/common';
-import { Transaction } from 'sequelize';
+import { Transaction, UniqueConstraintError } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import AttendeeRepository from './attendee.repository';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
@@ -14,6 +15,7 @@ import MentorAssignment from '../mentor-assignment/entities/mentor-assignment.en
 import User from '../user/entities/user.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
 import { AttendanceIntent, AttendeeRsvpStatus } from './attendee.constants';
+import type { UserGender } from '../user/interfaces/user.interface';
 
 type AuthenticatedUser = {
   userId?: string;
@@ -22,11 +24,18 @@ type AuthenticatedUser = {
   activeBranch?: string;
 };
 
+export interface EventAssignmentCounterpart {
+  name: string;
+  gender: UserGender | null;
+}
+
 export interface EventAssignmentRecipient {
-  mentorId: string;
-  mentorName: string;
-  mentorEmail: string | null;
-  traineeName: string | null;
+  userId: string;
+  name: string;
+  email: string | null;
+  gender: UserGender | null;
+  role: 'mentor' | 'trainee' | 'attendee';
+  assignments: EventAssignmentCounterpart[];
 }
 
 @Injectable()
@@ -422,31 +431,61 @@ export default class AttendeeService {
     eventId: string,
   ): Promise<EventAssignmentRecipient[]> {
     const { attendees, pairings } =
-      await this.attendeeRepository.getStructuredParticipants(eventId);
+      await this.attendeeRepository.getStructuredParticipants(eventId, {
+        includeAssignmentGender: true,
+      });
     const pairingByMentorId = new Map(
       pairings.map((pairing) => [pairing.mentorId, pairing]),
     );
-    const seenMentorIds = new Set<string>();
+    const pairingsByTraineeId = new Map<string, any[]>();
+    pairings.forEach((pairing) => {
+      const traineePairings = pairingsByTraineeId.get(pairing.traineeId) ?? [];
+      traineePairings.push(pairing);
+      pairingsByTraineeId.set(pairing.traineeId, traineePairings);
+    });
+
+    const seenUserIds = new Set<string>();
     const recipients: EventAssignmentRecipient[] = [];
 
     attendees.forEach((attendee) => {
       if (
-        seenMentorIds.has(attendee.userId) ||
-        attendee.rsvpStatus === AttendeeRsvpStatus.DECLINED ||
-        !this.userHasRole(attendee.user, AUTH_ROLES.VOLUNTEER.id)
+        seenUserIds.has(attendee.userId) ||
+        attendee.rsvpStatus === AttendeeRsvpStatus.DECLINED
       ) {
         return;
       }
 
-      seenMentorIds.add(attendee.userId);
-
-      const pairing = pairingByMentorId.get(attendee.userId);
+      seenUserIds.add(attendee.userId);
+      const isMentor = this.userHasRole(attendee.user, AUTH_ROLES.VOLUNTEER.id);
+      const isTrainee = this.userHasRole(attendee.user, AUTH_ROLES.TRAINEE.id);
+      const role = isMentor ? 'mentor' : isTrainee ? 'trainee' : 'attendee';
+      const mentorPairing = pairingByMentorId.get(attendee.userId);
+      const assignments =
+        role === 'mentor'
+          ? mentorPairing
+            ? [
+                {
+                  name: mentorPairing.trainee?.name ?? 'ללא שם',
+                  gender: mentorPairing.trainee?.gender ?? null,
+                },
+              ]
+            : []
+          : role === 'trainee'
+            ? (pairingsByTraineeId.get(attendee.userId) ?? []).map(
+                (pairing) => ({
+                  name: pairing.mentor?.name ?? 'ללא שם',
+                  gender: pairing.mentor?.gender ?? null,
+                }),
+              )
+            : [];
 
       recipients.push({
-        mentorId: attendee.userId,
-        mentorName: attendee.user?.name ?? 'ללא שם',
-        mentorEmail: attendee.user?.email ?? null,
-        traineeName: pairing?.trainee?.name ?? null,
+        userId: attendee.userId,
+        name: attendee.user?.name ?? 'ללא שם',
+        email: attendee.user?.email ?? null,
+        gender: attendee.user?.gender ?? null,
+        role,
+        assignments,
       });
     });
 
@@ -465,32 +504,52 @@ export default class AttendeeService {
     await this.assertUserRole(mentorId, AUTH_ROLES.VOLUNTEER.id);
     await this.assertUserRole(traineeId, AUTH_ROLES.TRAINEE.id);
 
-    await this.sequelize.transaction(async (transaction) => {
-      const [mentorAttendee, traineeAttendee] = await Promise.all([
-        this.attendeeRepository.findAttendeeByUserEvent(
+    try {
+      await this.sequelize.transaction(async (transaction) => {
+        const [mentorAttendee, traineeAttendee] = await Promise.all([
+          this.attendeeRepository.findAttendeeByUserEvent(
+            mentorId,
+            eventId,
+            transaction,
+          ),
+          this.attendeeRepository.findAttendeeByUserEvent(
+            traineeId,
+            eventId,
+            transaction,
+          ),
+        ]);
+
+        if (!mentorAttendee || !traineeAttendee) {
+          throw new BadRequestException('Both users must be event attendees');
+        }
+
+        const pairing = await this.attendeeRepository.createPairing(
+          eventId,
           mentorId,
-          eventId,
-          transaction,
-        ),
-        this.attendeeRepository.findAttendeeByUserEvent(
           traineeId,
-          eventId,
+          event.branchId,
           transaction,
-        ),
-      ]);
-
-      if (!mentorAttendee || !traineeAttendee) {
-        throw new BadRequestException('Both users must be event attendees');
+        );
+        if (!pairing) {
+          throw new ConflictException(
+            'Mentor is already paired with another trainee for this event',
+          );
+        }
+      });
+    } catch (error) {
+      if (
+        error instanceof BadRequestException ||
+        error instanceof ConflictException
+      ) {
+        throw error;
       }
-
-      await this.attendeeRepository.createPairing(
-        eventId,
-        mentorId,
-        traineeId,
-        event.branchId,
-        transaction,
-      );
-    });
+      if (error instanceof UniqueConstraintError) {
+        throw new ConflictException(
+          'Mentor is already paired with another trainee for this event',
+        );
+      }
+      throw error;
+    }
 
     return this.getParticipantsByEvent(eventId, actor);
   }

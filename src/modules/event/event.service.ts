@@ -8,7 +8,9 @@ import {
 } from '@nestjs/common';
 import EventRepository from './event.repository';
 import { IEvent } from './interfaces/event.interface';
-import AttendeeService from '../attendee/attendee.service';
+import AttendeeService, {
+  type EventAssignmentRecipient,
+} from '../attendee/attendee.service';
 import Event from './entities/event.entity';
 import { SupabaseStorageService } from '../storage/supabase-storage.service';
 import ActivityRepository from '../activity/activity.repository';
@@ -58,7 +60,9 @@ export interface EventAssignmentEmailDetail {
 
 export interface EventAssignmentEmailResult {
   eventId: string;
+  totalRegisteredAttendees: number;
   totalAttendingMentors: number;
+  totalAttendingTrainees: number;
   sentCount: number;
   skippedCount: number;
   failedCount: number;
@@ -443,7 +447,13 @@ export default class EventService {
       await this.attendeeService.getEventAssignmentRecipients(eventId);
     const result: EventAssignmentEmailResult = {
       eventId,
-      totalAttendingMentors: recipients.length,
+      totalRegisteredAttendees: recipients.length,
+      totalAttendingMentors: recipients.filter(
+        (recipient) => recipient.role === 'mentor',
+      ).length,
+      totalAttendingTrainees: recipients.filter(
+        (recipient) => recipient.role === 'trainee',
+      ).length,
       sentCount: 0,
       skippedCount: 0,
       failedCount: 0,
@@ -452,15 +462,15 @@ export default class EventService {
     };
 
     for (const recipient of recipients) {
-      if (!this.isValidEmail(recipient.mentorEmail)) {
+      if (!this.isValidEmail(recipient.email)) {
         result.skippedCount += 1;
         result.skipped.push({
-          userId: recipient.mentorId,
-          name: recipient.mentorName,
+          userId: recipient.userId,
+          name: recipient.name,
           reason: 'missing_email',
         });
         this.logger.log(
-          `Event assignment email skipped: eventId=${eventId} userId=${recipient.mentorId} reason=missing_email`,
+          `Event assignment email skipped: eventId=${eventId} userId=${recipient.userId} reason=missing_email`,
         );
         continue;
       }
@@ -471,17 +481,17 @@ export default class EventService {
         );
         result.sentCount += 1;
         this.logger.log(
-          `Event assignment email sent: eventId=${eventId} userId=${recipient.mentorId}`,
+          `Event assignment email sent: eventId=${eventId} userId=${recipient.userId}`,
         );
       } catch (error) {
         result.failedCount += 1;
         result.failed.push({
-          userId: recipient.mentorId,
-          name: recipient.mentorName,
+          userId: recipient.userId,
+          name: recipient.name,
           reason: 'email_send_failed',
         });
         this.logger.warn(
-          `Event assignment email failed: eventId=${eventId} userId=${recipient.mentorId}`,
+          `Event assignment email failed: eventId=${eventId} userId=${recipient.userId}`,
         );
       }
     }
@@ -566,54 +576,94 @@ export default class EventService {
 
   private buildAssignmentEmail(
     event: Event,
-    recipient: {
-      mentorName: string;
-      mentorEmail: string | null;
-      traineeName: string | null;
-    },
+    recipient: EventAssignmentRecipient,
   ) {
     const eventName = event.name;
     const eventDate = this.formatEventDate(event.startDate);
     const eventTime = this.formatEventTime(event.startDate);
     const eventLocation = event.address || 'לא צוין';
-    const traineeLine = recipient.traineeName
-      ? `החניך/ה המשובץ/ת אליך: ${recipient.traineeName}`
-      : 'נכון לעכשיו לא קיים עבורך שיבוץ לחניך באירוע זה.';
+    const registrationSentence = this.getRegistrationSentence(recipient.gender);
+    const assignmentLine = this.getAssignmentLine(recipient);
     const subject = `שיבוץ לאירוע: ${eventName}`;
     const text = [
-      `שלום ${recipient.mentorName},`,
+      `שלום ${recipient.name},`,
       '',
-      `את/ה רשום/ה כמשתתף/ת באירוע "${eventName}".`,
+      `${registrationSentence} "${eventName}".`,
       '',
       `תאריך: ${eventDate}`,
       `שעה: ${eventTime}`,
       `מיקום: ${eventLocation}`,
       '',
-      traineeLine,
+      assignmentLine,
       '',
       'בברכה,',
       'עת לעשות',
     ].join('\n');
     const html = `
       <div dir="rtl" style="font-family: Arial, sans-serif; line-height: 1.7; color: #222;">
-        <p>שלום ${this.escapeHtml(recipient.mentorName)},</p>
-        <p>את/ה רשום/ה כמשתתף/ת באירוע &quot;${this.escapeHtml(eventName)}&quot;.</p>
+        <p>שלום ${this.escapeHtml(recipient.name)},</p>
+        <p>${this.escapeHtml(registrationSentence)} &quot;${this.escapeHtml(eventName)}&quot;.</p>
         <p>
           <strong>תאריך:</strong> ${this.escapeHtml(eventDate)}<br />
           <strong>שעה:</strong> ${this.escapeHtml(eventTime)}<br />
           <strong>מיקום:</strong> ${this.escapeHtml(eventLocation)}
         </p>
-        <p>${this.escapeHtml(traineeLine)}</p>
+        <p>${this.escapeHtml(assignmentLine)}</p>
         <p>בברכה,<br />עת לעשות</p>
       </div>
     `;
 
     return {
-      to: recipient.mentorEmail!,
+      to: recipient.email!,
       subject,
       text,
       html,
     };
+  }
+
+  private getRegistrationSentence(gender: EventAssignmentRecipient['gender']) {
+    if (gender === 'male') {
+      return 'אתה רשום כמשתתף באירוע';
+    }
+    if (gender === 'female') {
+      return 'את רשומה כמשתתפת באירוע';
+    }
+    return 'נרשמת לאירוע';
+  }
+
+  private getAssignmentLine(recipient: EventAssignmentRecipient) {
+    if (recipient.assignments.length === 0) {
+      return 'מחכים לראותך!';
+    }
+
+    if (recipient.role === 'trainee' && recipient.assignments.length > 1) {
+      const names = recipient.assignments
+        .map((assignment) => assignment.name)
+        .join(', ');
+      if (!recipient.gender) {
+        return `השיבוץ שלך באירוע: ${names}`;
+      }
+      const recipientReference =
+        recipient.gender === 'female' ? 'אלייך' : 'אליך';
+      return `החונכים המשובצים ${recipientReference}: ${names}`;
+    }
+
+    const assignment = recipient.assignments[0];
+    if (!recipient.gender || !assignment.gender) {
+      return `השיבוץ שלך באירוע: ${assignment.name}`;
+    }
+
+    const assignmentDescription =
+      recipient.role === 'trainee'
+        ? assignment.gender === 'female'
+          ? 'החונכת המשובצת'
+          : 'החונך המשובץ'
+        : assignment.gender === 'female'
+          ? 'החניכה המשובצת'
+          : 'החניך המשובץ';
+    const recipientReference = recipient.gender === 'female' ? 'אלייך' : 'אליך';
+
+    return `${assignmentDescription} ${recipientReference}: ${assignment.name}`;
   }
 
   private isValidEmail(email?: string | null) {
