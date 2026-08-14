@@ -173,11 +173,29 @@ export default class AttendeeRepository {
     branchId: string,
     transaction: Transaction,
   ) {
-    await this.removePairingsForUsers(
-      eventId,
-      [mentorId, traineeId],
+    const activeMentorPairing = await EventPairing.findOne({
+      where: { eventId, mentorId },
       transaction,
-    );
+    });
+    if (activeMentorPairing) {
+      return activeMentorPairing.traineeId === traineeId
+        ? activeMentorPairing
+        : null;
+    }
+
+    const existingPairing = await EventPairing.findOne({
+      where: { eventId, mentorId, traineeId },
+      paranoid: false,
+      transaction,
+    });
+    if (existingPairing) {
+      if ((existingPairing as any).deletedAt) {
+        await existingPairing.restore({ transaction });
+      }
+
+      return existingPairing.reload({ transaction });
+    }
+
     return EventPairing.create(
       { eventId, mentorId, traineeId, branchId },
       { transaction },
@@ -248,11 +266,21 @@ export default class AttendeeRepository {
 
   public async getStructuredParticipants(
     eventId: string,
-    options?: { includePrintProfile?: boolean },
+    options?: {
+      includePrintProfile?: boolean;
+      includeAssignmentGender?: boolean;
+    },
   ) {
     const userAttributes = options?.includePrintProfile
       ? ['id', 'name', 'shirtSize', 'customShirtSize', 'allergies']
-      : ['id', 'name', 'email', 'phoneNumber', 'branchId'];
+      : [
+          'id',
+          'name',
+          'email',
+          'phoneNumber',
+          'branchId',
+          ...(options?.includeAssignmentGender ? ['gender'] : []),
+        ];
     const activeMedicationsInclude = () => ({
       model: TraineeMedication,
       as: 'traineeMedications',
