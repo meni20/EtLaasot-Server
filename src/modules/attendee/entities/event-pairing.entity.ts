@@ -24,8 +24,7 @@ import Branch from 'src/modules/branch/entities/branch.entity';
       where: { deletedAt: null },
     },
     {
-      name: 'event_pairing_trainee_active_unique',
-      unique: true,
+      name: 'idx_event_pairing_event_trainee_active',
       fields: ['eventId', 'traineeId'],
       where: { deletedAt: null },
     },
