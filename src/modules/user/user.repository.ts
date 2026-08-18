@@ -66,6 +66,9 @@ export default class UserRepository {
         UserRole,
         {
           model: Event,
+          // User lists only check whether a user is already registered for an
+          // event. Returning every event column caused a large joined payload.
+          attributes: ['id'],
           through: { attributes: [] },
           required: false,
         },
@@ -217,10 +220,7 @@ export default class UserRepository {
     failedLoginAttempts: number,
     lockedUntil: Date | null,
   ) {
-    await User.update(
-      { failedLoginAttempts, lockedUntil },
-      { where: { id } },
-    );
+    await User.update({ failedLoginAttempts, lockedUntil }, { where: { id } });
   }
 
   public async clearLoginFailures(id: string) {

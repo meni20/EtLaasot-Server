@@ -30,6 +30,21 @@ async function bootstrap() {
     credentials: true,
   });
 
+  app.use((req, res, next) => {
+    const startedAt = process.hrtime.bigint();
+
+    res.on('finish', () => {
+      const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
+      if (durationMs >= 250) {
+        console.warn(
+          `[slow-request] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms`,
+        );
+      }
+    });
+
+    next();
+  });
+
   app.useGlobalPipes(
     new ValidationPipe({
       whitelist: true,

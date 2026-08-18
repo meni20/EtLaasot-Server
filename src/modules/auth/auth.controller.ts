@@ -3,18 +3,14 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Patch,
   Post,
   Req,
   Res,
   UseGuards,
 } from '@nestjs/common';
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Response } from 'express';
 import { useSecureCookies } from 'src/config/env.util';
@@ -59,7 +55,10 @@ export default class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
-  async login(@Body() body: LoginDto, @Res({ passthrough: true }) res: Response) {
+  async login(
+    @Body() body: LoginDto,
+    @Res({ passthrough: true }) res: Response,
+  ) {
     const result = await this.authService.login(
       body.identifier,
       body.password,
@@ -99,10 +98,12 @@ export default class AuthController {
   }
 
   @Get('me')
+  @Header('Cache-Control', 'private, no-store')
   @UseGuards(JwtAuthGuard)
   @AllowPasswordChangeRequired()
   getMe(@Req() req: any) {
-    return this.authService.getMe(req.user.userId);
+    const { sub: _sub, ...user } = req.user;
+    return user;
   }
 
   @Patch('change-password')

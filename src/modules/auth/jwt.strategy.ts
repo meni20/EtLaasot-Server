@@ -40,16 +40,9 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
 
     const user = await this.authService.getMe(payload.sub);
 
-    if (!user.roles.length) {
-      throw new UnauthorizedException('No active permissions');
-    }
-
     return {
-      userId: payload.sub,
+      ...user,
       sub: payload.sub,
-      roles: user.roles,
-      activeBranch: user.activeBranch,
-      mustChangePassword: user.mustChangePassword,
     };
   }
 }

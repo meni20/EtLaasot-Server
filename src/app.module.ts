@@ -74,6 +74,8 @@ const getDbDialectOptions = () => {
     : undefined;
 
   return {
+    keepAlive: true,
+    application_name: 'etlaasot-server',
     ssl: {
       require: true,
       rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
@@ -96,6 +98,18 @@ const getDbDialectOptions = () => {
 
       ssl: getBooleanEnv('DB_SSL', true),
       dialectOptions: getDbDialectOptions(),
+
+      // Keep a small, bounded pool warm. The production database is reached
+      // through Supavisor, so repeatedly discarding the last connection makes
+      // the next API request pay for a new TLS and pooler handshake.
+      pool: {
+        max: 5,
+        min: 1,
+        acquire: 10_000,
+        idle: 60_000,
+        evict: 60_000,
+      },
+      logging: getBooleanEnv('DB_LOGGING', false) ? console.log : false,
 
       autoLoadModels: true,
       synchronize: getBooleanEnv('DB_SYNC', false),

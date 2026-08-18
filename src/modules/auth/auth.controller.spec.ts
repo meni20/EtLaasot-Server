@@ -27,4 +27,28 @@ describe('AuthController', () => {
       );
     });
   });
+
+  describe('getMe', () => {
+    it('returns the user already resolved by the JWT strategy', () => {
+      const authService = { getMe: jest.fn() };
+      const controller = new AuthController(authService as never);
+      const resolvedUser = {
+        userId: 'user-1',
+        sub: 'user-1',
+        name: 'Resolved once',
+        roles: [{ role: 'TRAINEE', roleId: 2, branchId: 'branch-1' }],
+        activeBranch: 'branch-1',
+        mustChangePassword: false,
+      };
+
+      expect(controller.getMe({ user: resolvedUser })).toEqual({
+        userId: 'user-1',
+        name: 'Resolved once',
+        roles: [{ role: 'TRAINEE', roleId: 2, branchId: 'branch-1' }],
+        activeBranch: 'branch-1',
+        mustChangePassword: false,
+      });
+      expect(authService.getMe).not.toHaveBeenCalled();
+    });
+  });
 });

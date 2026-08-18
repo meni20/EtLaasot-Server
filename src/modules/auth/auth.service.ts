@@ -21,6 +21,39 @@ import {
   validateNewPassword,
   verifyPassword,
 } from './password.util';
+import { QueryTypes } from 'sequelize';
+import { Sequelize } from 'sequelize-typescript';
+import { BRANCH_DISPLAY_BY_ID } from 'src/constants/auth.constants';
+
+type AuthContextRoleRow = {
+  roleId: number;
+  resourceId?: string | null;
+  branchName?: string | null;
+};
+
+type AuthContextRow = {
+  userId: string;
+  name: string;
+  nationalIdLast4: string | null;
+  mustChangePassword: boolean;
+  fallbackBranchId: string | null;
+  roles: AuthContextRoleRow[] | string;
+};
+
+export type AuthenticatedUser = {
+  userId: string;
+  name: string;
+  nationalIdLast4: string | null;
+  nationalIdMasked: string | null;
+  roles: Array<{
+    role: string;
+    roleId: number;
+    branchId: string;
+    branchName: string;
+  }>;
+  activeBranch: string;
+  mustChangePassword: boolean;
+};
 
 @Injectable()
 export default class AuthService {
@@ -28,8 +61,21 @@ export default class AuthService {
   private readonly maxLoginAttempts = getIntegerEnv('AUTH_MAX_ATTEMPTS', 5);
   private readonly lockoutMs =
     getIntegerEnv('AUTH_LOCKOUT_SECONDS', 300) * 1000;
+  private readonly authContextCacheMs = getIntegerEnv(
+    'AUTH_CONTEXT_CACHE_MS',
+    1000,
+  );
+  private readonly authContextCache = new Map<
+    string,
+    { expiresAt: number; value: AuthenticatedUser }
+  >();
+  private readonly authContextInFlight = new Map<
+    string,
+    Promise<AuthenticatedUser>
+  >();
 
   constructor(
+    private readonly sequelize: Sequelize,
     private readonly userRoleService: UserRoleService,
     private readonly userService: UserService,
     private readonly branchService: BranchService,
@@ -55,11 +101,15 @@ export default class AuthService {
     }
 
     const passwordMatches =
-      !!user.passwordHash && (await verifyPassword(user.passwordHash, password));
+      !!user.passwordHash &&
+      (await verifyPassword(user.passwordHash, password));
 
     if (
       !passwordMatches ||
-      this.isTemporaryPasswordExpired(user.mustChangePassword, user.temporaryPasswordExpiresAt)
+      this.isTemporaryPasswordExpired(
+        user.mustChangePassword,
+        user.temporaryPasswordExpiresAt,
+      )
     ) {
       await this.registerFailedLogin(user);
       this.logger.warn('Login denied: invalid credentials');
@@ -158,46 +208,113 @@ export default class AuthService {
 
     const passwordHash = await hashPassword(normalizedNewPassword);
     await this.userService.updatePassword(userId, passwordHash, false, null);
+    this.authContextCache.delete(userId);
 
     return { ok: true };
   }
 
-  async getMe(userId: string) {
-    const [rows, user, authState, branches] = await Promise.all([
-      this.userRoleService.findRolesByUserId(userId),
-      this.userService.findById(userId),
-      this.userService.findByIdForAuth(userId),
-      this.branchService.getAllBranches(),
-    ]);
-    const resolvedBranches = branches.filter(
-      (branch): branch is NonNullable<typeof branch> => !!branch,
-    );
-    const branchMap = new Map(
-      resolvedBranches.map((branch) => [branch.id, branch]),
+  async getMe(userId: string): Promise<AuthenticatedUser> {
+    const cached = this.authContextCache.get(userId);
+    if (cached && cached.expiresAt > Date.now()) {
+      return cached.value;
+    }
+
+    const existingRequest = this.authContextInFlight.get(userId);
+    if (existingRequest) {
+      return existingRequest;
+    }
+
+    const request = this.loadAuthContext(userId);
+    this.authContextInFlight.set(userId, request);
+
+    try {
+      const value = await request;
+      this.authContextCache.set(userId, {
+        expiresAt: Date.now() + this.authContextCacheMs,
+        value,
+      });
+      return value;
+    } finally {
+      this.authContextInFlight.delete(userId);
+    }
+  }
+
+  private async loadAuthContext(userId: string): Promise<AuthenticatedUser> {
+    const [row] = await this.sequelize.query<AuthContextRow>(
+      `
+        SELECT
+          u.id AS "userId",
+          u.name,
+          u.national_id_last4 AS "nationalIdLast4",
+          u.must_change_password AS "mustChangePassword",
+          u."branchId" AS "fallbackBranchId",
+          COALESCE(
+            json_agg(
+              json_build_object(
+                'roleId', ur."roleId",
+                'resourceId', ur."resourceId",
+                'branchName', b.name
+              )
+              ORDER BY ur."roleId" DESC
+            ) FILTER (WHERE ur."userId" IS NOT NULL),
+            '[]'::json
+          ) AS roles
+        FROM public."user" u
+        LEFT JOIN public.user_roles ur
+          ON ur."userId" = u.id
+          AND ur."deletedAt" IS NULL
+        LEFT JOIN public.branch b
+          ON b.id = COALESCE(NULLIF(ur."resourceId", ''), u."branchId")
+          AND b."deletedAt" IS NULL
+          AND b."isActive" = true
+        WHERE u.id = :userId
+          AND u."deletedAt" IS NULL
+          AND u.is_active = true
+        GROUP BY
+          u.id,
+          u.name,
+          u.national_id_last4,
+          u.must_change_password,
+          u."branchId"
+      `,
+      {
+        replacements: { userId },
+        type: QueryTypes.SELECT,
+      },
     );
 
-    const safeUser =
-      user && typeof user.toJSON === 'function' ? user.toJSON() : user;
-    const roles = this.buildRoles(
-      rows,
-      branchMap,
-      safeUser?.branchId as string | null | undefined,
-    );
-
-    const activeBranch = roles.find((role) => role.branchId)?.branchId || '';
-
-    if (!authState?.isActive) {
+    if (!row) {
       throw this.invalidCredentials();
     }
 
+    const roleRows: AuthContextRoleRow[] =
+      typeof row.roles === 'string' ? JSON.parse(row.roles) : row.roles;
+    const roles = roleRows.map((roleRow) => {
+      const branchId = String(roleRow.resourceId || row.fallbackBranchId || '');
+      const configuredBranchName = branchId
+        ? BRANCH_DISPLAY_BY_ID[branchId]?.name
+        : undefined;
+
+      return {
+        role: ROLE_ID_TO_NAME[roleRow.roleId] || 'UNKNOWN',
+        roleId: roleRow.roleId,
+        branchId,
+        branchName: configuredBranchName || roleRow.branchName || '',
+      };
+    });
+
+    if (!roles.length) {
+      throw new UnauthorizedException('No active permissions');
+    }
+
     return {
-      userId: safeUser?.id ?? '',
-      name: user?.name || '',
-      nationalIdLast4: user?.nationalIdLast4 ?? null,
-      nationalIdMasked: maskNationalIdLast4(user?.nationalIdLast4),
+      userId: row.userId,
+      name: row.name || '',
+      nationalIdLast4: row.nationalIdLast4 ?? null,
+      nationalIdMasked: maskNationalIdLast4(row.nationalIdLast4),
       roles,
-      activeBranch,
-      mustChangePassword: Boolean(authState?.mustChangePassword),
+      activeBranch: roles.find((role) => role.branchId)?.branchId || '',
+      mustChangePassword: Boolean(row.mustChangePassword),
     };
   }
 
@@ -280,8 +397,8 @@ export default class AuthService {
   ) {
     return Boolean(
       mustChangePassword &&
-        temporaryPasswordExpiresAt &&
-        new Date(temporaryPasswordExpiresAt).getTime() <= Date.now(),
+      temporaryPasswordExpiresAt &&
+      new Date(temporaryPasswordExpiresAt).getTime() <= Date.now(),
     );
   }
 

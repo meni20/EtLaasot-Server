@@ -55,23 +55,13 @@ export default class EventRepository {
 
     return Event.findAll({
       where,
+      attributes: { exclude: ['aiSummary', 'aiSummaryGeneratedAt'] },
       include: [
         {
           model: Attendee,
-          include: [
-            {
-              model: User,
-              attributes: [
-                'id',
-                'name',
-                'email',
-                'phoneNumber',
-                'address',
-                'age',
-                'dateOfBirth',
-              ],
-            },
-          ],
+          // Event lists only use attendee count and membership. Full attendee
+          // profiles are loaded by the dedicated event-attendees endpoint.
+          attributes: ['userId'],
         },
       ],
       order: [['start_date', 'DESC']],
@@ -105,7 +95,7 @@ export default class EventRepository {
       },
       order: [['start_date', 'ASC']],
       limit,
-      include: [{ model: Attendee }],
+      include: [{ model: Attendee, attributes: ['userId'] }],
     });
   }
 

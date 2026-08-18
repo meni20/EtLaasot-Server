@@ -6,6 +6,7 @@ import {
   Body,
   Controller,
   Get,
+  Header,
   Param,
   ParseUUIDPipe,
   Patch,
@@ -29,6 +30,7 @@ export default class UserController {
   ) {}
 
   @Get('me')
+  @Header('Cache-Control', 'private, no-store')
   public getMe(@Req() req: any) {
     return this.userService.getCurrentUserProfile(req.user.userId);
   }
