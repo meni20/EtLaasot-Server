@@ -2,11 +2,31 @@
 
 ## Local setup
 
-1. Copy `.env.example` to `.env` and set local database credentials.
+1. Create the ignored `.env.production.local` and `.env.development.local`
+   secret files. Production must point to Supabase project
+   `tmlnuqrwhdeplpeuuvwv`; development must point to
+   `vlysppqfozfiwcmsyban`.
 2. For an empty local database only, set `DB_SYNC=true` once and start the server so Sequelize creates the base tables. Set it back to `false` afterward.
 3. Run `npm run migrate` to apply database schema changes, constraints, and indexes from `migrations/`.
 4. Run `npm run seed` to create baseline roles, branches, and the local admin user.
 5. Start the API with `npm run start:dev`.
+
+## Branch-based environment selection
+
+The API and migration runner select their Supabase project from the Git branch:
+
+- Exact branch `main`: `.env.production.local` and the `EtLaasot` production
+  project.
+- Every other branch, detached HEAD, or unknown branch:
+  `.env.development.local` and the `EtLaasot-dev` project.
+
+On Render, `RENDER_GIT_BRANCH` is used instead of invoking Git. Other supported
+CI variables are `GITHUB_HEAD_REF`, `GITHUB_REF_NAME`,
+`CI_COMMIT_REF_NAME`, and `BRANCH_NAME`.
+
+Startup fails closed if `DB_USER` or `SUPABASE_URL` identifies the opposite
+project. Keep both local environment files untracked and store deployed values
+as Render secrets. `NODE_ENV` never decides the database target.
 
 ## Render runtime
 

@@ -24,39 +24,13 @@ import {
   getPortEnv,
   getRequiredEnv,
 } from './config/env.util';
+import { loadRuntimeEnvironment } from '../scripts/runtime-environment.cjs';
 
-const serverEnvPath = path.resolve(__dirname, '..', '.env');
-const forcedServerEnvKeys = ['NATIONAL_ID_ENCRYPTION_KEY'];
-
-const loadForcedServerEnvKeys = () => {
-  if (!fs.existsSync(serverEnvPath)) {
-    return;
-  }
-
-  const contents = fs.readFileSync(serverEnvPath, 'utf8');
-
-  for (const line of contents.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const separatorIndex = trimmed.indexOf('=');
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    if (!forcedServerEnvKeys.includes(key)) {
-      continue;
-    }
-
-    const rawValue = trimmed.slice(separatorIndex + 1).trim();
-    process.env[key] = rawValue.replace(/^["']|["']$/g, '');
-  }
-};
-
-loadForcedServerEnvKeys();
+const serverRoot = path.resolve(__dirname, '..');
+export const runtimeEnvironment = loadRuntimeEnvironment({
+  rootDir: serverRoot,
+});
+const serverEnvPath = runtimeEnvironment.envFilePath;
 
 const getDbDialectOptions = () => {
   if (!getBooleanEnv('DB_SSL', true)) {
@@ -86,7 +60,7 @@ const getDbDialectOptions = () => {
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ envFilePath: serverEnvPath, isGlobal: true }),
+    ConfigModule.forRoot({ ignoreEnvFile: true, isGlobal: true }),
 
     SequelizeModule.forRoot({
       dialect: 'postgres',

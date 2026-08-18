@@ -1,14 +1,16 @@
 import { NestFactory } from '@nestjs/core';
 import { ConfigModule, ConfigService } from '@nestjs/config';
 import { Module } from '@nestjs/common';
-import * as path from 'path';
 import { EmailModule } from '../modules/email/email.module';
 import { EmailService } from '../modules/email/email.service';
+import { loadRuntimeEnvironment } from '../../scripts/runtime-environment.cjs';
+
+loadRuntimeEnvironment({ rootDir: process.cwd() });
 
 @Module({
   imports: [
     ConfigModule.forRoot({
-      envFilePath: path.resolve(__dirname, '..', '..', '.env'),
+      ignoreEnvFile: true,
       isGlobal: true,
     }),
     EmailModule,

@@ -1,4 +1,4 @@
-import { AppModule } from './app.module';
+import { AppModule, runtimeEnvironment } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
 import { getOptionalEnv, isProduction } from './config/env.util';
@@ -65,6 +65,9 @@ async function bootstrap() {
 
   const port = process.env.PORT ?? 3000;
   await app.listen(port, '0.0.0.0');
+  console.log(
+    `Environment target: ${runtimeEnvironment.target} (branch: ${runtimeEnvironment.branch})`,
+  );
   console.log(`Server running on 0.0.0.0:${port}`);
 }
 bootstrap();

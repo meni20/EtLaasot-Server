@@ -3,37 +3,8 @@ const path = require('path');
 const { Client } = require('pg');
 
 const rootDir = path.resolve(__dirname, '..');
-const envPath = path.join(rootDir, '.env');
 const migrationsDir = path.join(rootDir, 'migrations');
-const forceServerEnvKeys = new Set(['NATIONAL_ID_ENCRYPTION_KEY']);
-
-function loadEnvFile() {
-  if (!fs.existsSync(envPath)) {
-    return;
-  }
-
-  const contents = fs.readFileSync(envPath, 'utf8');
-
-  for (const line of contents.split(/\r?\n/)) {
-    const trimmed = line.trim();
-    if (!trimmed || trimmed.startsWith('#')) {
-      continue;
-    }
-
-    const separatorIndex = trimmed.indexOf('=');
-    if (separatorIndex === -1) {
-      continue;
-    }
-
-    const key = trimmed.slice(0, separatorIndex).trim();
-    const rawValue = trimmed.slice(separatorIndex + 1).trim();
-    const value = rawValue.replace(/^["']|["']$/g, '');
-
-    if (forceServerEnvKeys.has(key) || !process.env[key]) {
-      process.env[key] = value;
-    }
-  }
-}
+const { loadRuntimeEnvironment } = require('./runtime-environment.cjs');
 
 function getRequiredEnv(key) {
   const value = process.env[key]?.trim();
@@ -104,7 +75,10 @@ function getClientConfig() {
 }
 
 async function run() {
-  loadEnvFile();
+  const runtimeEnvironment = loadRuntimeEnvironment({ rootDir });
+  console.log(
+    `Migration target: ${runtimeEnvironment.target} (branch: ${runtimeEnvironment.branch})`,
+  );
 
   const client = new Client(getClientConfig());
   await client.connect();
