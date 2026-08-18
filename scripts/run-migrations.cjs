@@ -78,6 +78,15 @@ function getBooleanEnv(key, fallback = false) {
 
 function getClientConfig() {
   const sslEnabled = getBooleanEnv('DB_SSL', true);
+  const configuredCaPath = process.env.DB_SSL_CA_PATH?.trim();
+  const ca = configuredCaPath
+    ? fs.readFileSync(
+        path.isAbsolute(configuredCaPath)
+          ? configuredCaPath
+          : path.resolve(rootDir, configuredCaPath),
+        'utf8',
+      )
+    : undefined;
 
   return {
     host: getRequiredEnv('DB_HOST'),
@@ -88,6 +97,7 @@ function getClientConfig() {
     ssl: sslEnabled
       ? {
           rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
+          ...(ca ? { ca } : {}),
         }
       : false,
   };
@@ -99,12 +109,18 @@ async function run() {
   const client = new Client(getClientConfig());
   await client.connect();
 
-  await client.query(`
-    CREATE TABLE IF NOT EXISTS schema_migrations (
-      filename text PRIMARY KEY,
-      applied_at timestamptz NOT NULL DEFAULT now()
-    )
-  `);
+  const migrationTable = await client.query(
+    "SELECT to_regclass('public.schema_migrations') AS relation",
+  );
+
+  if (!migrationTable.rows[0]?.relation) {
+    await client.query(`
+      CREATE TABLE public.schema_migrations (
+        filename text PRIMARY KEY,
+        applied_at timestamptz NOT NULL DEFAULT now()
+      )
+    `);
+  }
 
   const files = fs
     .readdirSync(migrationsDir)

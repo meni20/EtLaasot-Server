@@ -18,7 +18,12 @@ import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
-import { getBooleanEnv, getPortEnv, getRequiredEnv } from './config/env.util';
+import {
+  getBooleanEnv,
+  getOptionalEnv,
+  getPortEnv,
+  getRequiredEnv,
+} from './config/env.util';
 
 const serverEnvPath = path.resolve(__dirname, '..', '.env');
 const forcedServerEnvKeys = ['NATIONAL_ID_ENCRYPTION_KEY'];
@@ -58,10 +63,21 @@ const getDbDialectOptions = () => {
     return undefined;
   }
 
+  const configuredCaPath = getOptionalEnv('DB_SSL_CA_PATH');
+  const ca = configuredCaPath
+    ? fs.readFileSync(
+        path.isAbsolute(configuredCaPath)
+          ? configuredCaPath
+          : path.resolve(path.dirname(serverEnvPath), configuredCaPath),
+        'utf8',
+      )
+    : undefined;
+
   return {
     ssl: {
       require: true,
       rejectUnauthorized: getBooleanEnv('DB_SSL_REJECT_UNAUTHORIZED', true),
+      ...(ca ? { ca } : {}),
     },
   };
 };
