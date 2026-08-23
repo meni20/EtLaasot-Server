@@ -58,9 +58,6 @@ export type AuthenticatedUser = {
 @Injectable()
 export default class AuthService {
   private readonly logger = new Logger(AuthService.name);
-  private readonly maxLoginAttempts = getIntegerEnv('AUTH_MAX_ATTEMPTS', 5);
-  private readonly lockoutMs =
-    getIntegerEnv('AUTH_LOCKOUT_SECONDS', 300) * 1000;
   private readonly authContextCacheMs = getIntegerEnv(
     'AUTH_CONTEXT_CACHE_MS',
     1000,
@@ -346,29 +343,10 @@ export default class AuthService {
   private async assertLoginAllowed(user: {
     id: string;
     isActive?: boolean | null;
-    failedLoginAttempts?: number | null;
-    lockedUntil?: Date | string | null;
   }) {
     if (user.isActive === false) {
       throw this.invalidCredentials();
     }
-
-    const lockedUntil = user.lockedUntil
-      ? new Date(user.lockedUntil).getTime()
-      : 0;
-
-    if (!lockedUntil) {
-      return;
-    }
-
-    if (lockedUntil <= Date.now()) {
-      await this.userService.clearLoginFailures(user.id);
-      user.failedLoginAttempts = 0;
-      user.lockedUntil = null;
-      return;
-    }
-
-    throw this.invalidCredentials();
   }
 
   private async registerFailedLogin(user: {
@@ -377,17 +355,13 @@ export default class AuthService {
     lockedUntil?: Date | string | null;
   }) {
     const failedLoginAttempts = Number(user.failedLoginAttempts ?? 0) + 1;
-    const lockedUntil =
-      failedLoginAttempts >= this.maxLoginAttempts
-        ? new Date(Date.now() + this.lockoutMs)
-        : null;
 
     user.failedLoginAttempts = failedLoginAttempts;
-    user.lockedUntil = lockedUntil;
+    user.lockedUntil = null;
     await this.userService.registerFailedLogin(
       user.id,
       failedLoginAttempts,
-      lockedUntil,
+      null,
     );
   }
 
