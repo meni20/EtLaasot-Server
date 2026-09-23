@@ -14,6 +14,7 @@ import { ActivityModule } from './modules/activity/activity.module';
 import { EmailModule } from './modules/email/email.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { TraineeMedicationModule } from './modules/trainee-medication/trainee-medication.module';
+import { TraineeDocumentModule } from './modules/trainee-document/trainee-document.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -104,6 +105,7 @@ const getDbDialectOptions = () => {
     EmailModule,
     DashboardModule,
     TraineeMedicationModule,
+    TraineeDocumentModule,
   ],
   controllers: [AppController],
   providers: [AppService],
