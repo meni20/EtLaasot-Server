@@ -36,28 +36,38 @@ export default class AttendeeRepository {
     userId: string,
     eventId: string,
     rsvpStatus: AttendeeRsvpStatus,
+    transaction?: Transaction,
   ) {
     const existing = await Attendee.findOne({
       where: { userId, eventId },
       paranoid: false,
+      transaction,
     });
     if (existing) {
       if ((existing as any).deletedAt) {
-        await existing.restore();
+        await existing.restore({ transaction });
       }
 
-      await existing.update({ rsvpStatus, rsvpDate: new Date() });
+      await existing.update(
+        { rsvpStatus, rsvpDate: new Date() },
+        { transaction },
+      );
       return existing.reload({
+        transaction,
         include: [{ model: User, attributes: ['id', 'name', 'email'] }],
       });
     }
-    const attendee = await Attendee.create({
-      userId,
-      eventId,
-      rsvpStatus,
-      rsvpDate: new Date(),
-    });
+    const attendee = await Attendee.create(
+      {
+        userId,
+        eventId,
+        rsvpStatus,
+        rsvpDate: new Date(),
+      },
+      { transaction },
+    );
     return attendee.reload({
+      transaction,
       include: [{ model: User, attributes: ['id', 'name', 'email'] }],
     });
   }
@@ -105,10 +115,14 @@ export default class AttendeeRepository {
     });
   }
 
-  public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
+  public async updateRsvp(
+    attendeeId: string,
+    rsvpStatus: AttendeeRsvpStatus,
+    transaction?: Transaction,
+  ) {
     return Attendee.update(
       { rsvpStatus, rsvpDate: new Date() },
-      { where: { id: attendeeId } },
+      { where: { id: attendeeId }, transaction },
     );
   }
 

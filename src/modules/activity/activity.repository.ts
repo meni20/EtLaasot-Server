@@ -1,5 +1,5 @@
 import { Injectable } from '@nestjs/common';
-import { Op } from 'sequelize';
+import { Op, Transaction } from 'sequelize';
 import VolunteerActivity from './entities/activity.entity';
 import { IVolunteerActivity } from './interfaces/activity.interface';
 import User from '../user/entities/user.entity';
@@ -32,7 +32,7 @@ export default class ActivityRepository {
     },
     {
       model: Event,
-      attributes: ['id', 'name', 'eventType', 'branchId'],
+      attributes: ['id', 'name', 'eventType', 'branchId', 'audience'],
     },
     {
       model: Branch,
@@ -41,8 +41,8 @@ export default class ActivityRepository {
     },
   ];
 
-  public async create(data: IVolunteerActivity) {
-    return VolunteerActivity.create(data);
+  public async create(data: IVolunteerActivity, transaction?: Transaction) {
+    return VolunteerActivity.create(data, { transaction });
   }
 
   public async findById(id: string) {

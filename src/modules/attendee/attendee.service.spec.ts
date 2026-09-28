@@ -1,3 +1,4 @@
+import { AuthorizationService } from '../auth/authorization.service';
 import { ForbiddenException } from '@nestjs/common';
 import { Sequelize } from 'sequelize-typescript';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
@@ -10,7 +11,11 @@ describe('AttendeeService printable participants', () => {
   const repository = {
     getStructuredParticipants,
   } as unknown as AttendeeRepository;
-  const service = new AttendeeService(repository, {} as Sequelize);
+  const service = new AttendeeService(
+    repository,
+    {} as Sequelize,
+    new AuthorizationService(),
+  );
 
   beforeEach(() => {
     getStructuredParticipants.mockReset();

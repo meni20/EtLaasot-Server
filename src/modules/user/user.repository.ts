@@ -1,4 +1,4 @@
-import { col, FindAttributeOptions, Transaction } from 'sequelize';
+import { col, FindAttributeOptions, Op, Transaction } from 'sequelize';
 import User from './entities/user.entity';
 import { Injectable } from '@nestjs/common';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
@@ -108,7 +108,7 @@ export default class UserRepository {
     const where: any = this.getActiveWhere(status);
     if (branchId) where.branchId = branchId;
 
-    return await User.findAll({
+    const trainees = await User.findAll({
       where,
       attributes: this.getSafeAttributes(
         includeNotes,
@@ -123,6 +123,26 @@ export default class UserRepository {
       ],
       limit: 500,
     });
+
+    // The join selects trainees; audience eligibility also needs their other
+    // roles. Hydrate only this bounded result, preserving branch/status scope.
+    if (trainees.length) {
+      const roles = await UserRole.findAll({
+        where: { userId: { [Op.in]: trainees.map((user) => user.id) } },
+        attributes: ['userId', 'roleId', 'resourceId'],
+      });
+      const rolesByUser = new Map<string, UserRole[]>();
+      roles.forEach((role) => {
+        const userRoles = rolesByUser.get(role.userId) ?? [];
+        userRoles.push(role);
+        rolesByUser.set(role.userId, userRoles);
+      });
+      return trainees.map((user) => ({
+        ...user.toJSON(),
+        userRoles: rolesByUser.get(user.id) ?? [],
+      }));
+    }
+    return trainees;
   }
 
   public async countByBranchAndRole(branchId: string, roleId: number) {

@@ -5,10 +5,16 @@ import {
   IsDateString,
   IsOptional,
   IsNotEmpty,
+  ValidateIf,
 } from 'class-validator';
 import { EVENT_TYPE_IDS } from 'src/constants/auth.constants';
+import { EVENT_AUDIENCES, type EventAudience } from '../event-audience';
 
 export class CreateEventDto {
+  @ValidateIf((_object, value) => value !== undefined)
+  @IsIn(EVENT_AUDIENCES)
+  audience?: EventAudience;
+
   @IsString()
   @IsNotEmpty()
   name: string;

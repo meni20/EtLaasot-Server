@@ -15,6 +15,14 @@ import MentorAssignment from '../mentor-assignment/entities/mentor-assignment.en
 import User from '../user/entities/user.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
 import { AttendanceIntent, AttendeeRsvpStatus } from './attendee.constants';
+import {
+  AuthorizationService,
+  type AuthUser,
+} from '../auth/authorization.service';
+import {
+  matchesEventAudience,
+  userAudienceActor,
+} from '../event/event-audience';
 import type { UserGender } from '../user/interfaces/user.interface';
 
 type AuthenticatedUser = {
@@ -43,35 +51,55 @@ export default class AttendeeService {
   constructor(
     private readonly attendeeRepository: AttendeeRepository,
     private readonly sequelize: Sequelize,
+    private readonly authorization: AuthorizationService,
   ) {}
 
-  public async addAttendee(userId: string, eventId: string) {
-    try {
-      const attendee = await this.attendeeRepository.createAttendee(
+  public async addAttendee(userId: string, eventId: string, actor: AuthUser) {
+    return this.sequelize.transaction(async (transaction) => {
+      const event = await this.authorization.lockEvent(eventId, transaction);
+      this.authorization.assertAdminForBranch(actor, event.branchId);
+      await this.authorization.assertUserBelongsToBranch(
         userId,
-        eventId,
+        event.branchId,
       );
-      return this.toSafeAttendee(attendee);
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to create attendee');
-    }
+      await this.authorization.assertEligibleParticipants(
+        [userId],
+        event,
+        transaction,
+      );
+      return this.toSafeAttendee(
+        await this.attendeeRepository.createAttendee(
+          userId,
+          eventId,
+          transaction,
+        ),
+      );
+    });
   }
 
   public async joinEvent(
     userId: string,
     eventId: string,
     rsvpStatus: AttendeeRsvpStatus,
+    actor: AuthUser,
   ) {
-    try {
-      const attendee = await this.attendeeRepository.createAndConfirm(
-        userId,
-        eventId,
-        rsvpStatus,
+    return this.sequelize.transaction(async (transaction) => {
+      const event = await this.authorization.lockEvent(eventId, transaction);
+      this.authorization.assertEventAccess(actor, event);
+      await this.authorization.assertEligibleParticipants(
+        [userId],
+        event,
+        transaction,
       );
-      return this.toSafeAttendee(attendee);
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to join event');
-    }
+      return this.toSafeAttendee(
+        await this.attendeeRepository.createAndConfirm(
+          userId,
+          eventId,
+          rsvpStatus,
+          transaction,
+        ),
+      );
+    });
   }
 
   public async getAllAttendeesByEvent(eventId: string) {
@@ -125,12 +153,32 @@ export default class AttendeeService {
       });
   }
 
-  public async updateRsvp(attendeeId: string, rsvpStatus: AttendeeRsvpStatus) {
-    try {
-      return await this.attendeeRepository.updateRsvp(attendeeId, rsvpStatus);
-    } catch (error) {
-      throw new InternalServerErrorException('Failed to update RSVP');
-    }
+  public async updateRsvp(
+    attendeeId: string,
+    rsvpStatus: AttendeeRsvpStatus,
+    actor: AuthUser,
+  ) {
+    const attendee = await this.attendeeRepository.findById(attendeeId);
+    if (!attendee) throw new NotFoundException('Attendee not found');
+    return this.sequelize.transaction(async (transaction) => {
+      const event = await this.authorization.lockEvent(
+        attendee.eventId,
+        transaction,
+      );
+      this.authorization.assertEventAccess(actor, event);
+      if (attendee.userId !== this.authorization.getActorId(actor))
+        this.authorization.assertAdminForBranch(actor, event.branchId);
+      await this.authorization.assertEligibleParticipants(
+        [attendee.userId],
+        event,
+        transaction,
+      );
+      return this.attendeeRepository.updateRsvp(
+        attendeeId,
+        rsvpStatus,
+        transaction,
+      );
+    });
   }
 
   public async checkIn(attendeeId: string, checkedInBy: string) {
@@ -172,30 +220,36 @@ export default class AttendeeService {
     actor: AuthenticatedUser,
   ) {
     const actorId = this.getActorId(actor);
-    const event = await this.getEventOrThrow(eventId);
-    this.assertBranchAccess(actor, event.branchId);
-
-    if (this.actorHasRole(actor, AUTH_ROLES.VOLUNTEER.id)) {
-      return this.updateVolunteerAttendanceIntent(
-        eventId,
-        intent,
-        actor,
-        actorId,
-        event,
-      );
-    }
-
-    if (this.actorHasRole(actor, AUTH_ROLES.TRAINEE.id)) {
-      return this.updateTraineeAttendanceIntent(
-        eventId,
-        intent,
-        actor,
-        actorId,
-        event,
-      );
-    }
-
-    throw new ForbiddenException('Volunteer or trainee role is required');
+    await this.sequelize.transaction(async (transaction) => {
+      const event = await this.authorization.lockEvent(eventId, transaction);
+      this.authorization.assertEventAccess(actor, event);
+      const traineeMode =
+        this.actorHasRole(actor, AUTH_ROLES.TRAINEE.id) &&
+        (event.audience === 'TRAINEES' ||
+          !this.actorHasRole(actor, AUTH_ROLES.VOLUNTEER.id));
+      if (traineeMode) {
+        await this.updateTraineeAttendanceIntent(
+          eventId,
+          intent,
+          actor,
+          actorId,
+          event,
+          transaction,
+        );
+      } else if (this.actorHasRole(actor, AUTH_ROLES.VOLUNTEER.id)) {
+        await this.updateVolunteerAttendanceIntent(
+          eventId,
+          intent,
+          actor,
+          actorId,
+          event,
+          transaction,
+        );
+      } else {
+        throw new ForbiddenException('Volunteer or trainee role is required');
+      }
+    });
+    return this.getParticipantsByEvent(eventId, actor);
   }
 
   private async updateVolunteerAttendanceIntent(
@@ -204,6 +258,7 @@ export default class AttendeeService {
     actor: AuthenticatedUser,
     volunteerId: string,
     event: Event,
+    transaction: Transaction,
   ) {
     this.assertVolunteer(actor);
 
@@ -228,40 +283,36 @@ export default class AttendeeService {
 
     await this.assertUsersBelongToBranch([volunteerId], event.branchId);
 
-    await this.sequelize.transaction(async (transaction) => {
-      if (intent === AttendanceIntent.VOLUNTEER_ONLY) {
-        await this.attendeeRepository.ensureAttendee(
+    if (intent === AttendanceIntent.VOLUNTEER_ONLY) {
+      await this.attendeeRepository.ensureAttendee(
+        volunteerId,
+        eventId,
+        transaction,
+      );
+      if (traineeId) {
+        await this.tryCreateAssignedPairingIfCounterpartAttending(
+          eventId,
+          event,
           volunteerId,
-          eventId,
-          transaction,
-        );
-        if (traineeId) {
-          await this.tryCreateAssignedPairingIfCounterpartAttending(
-            eventId,
-            event,
-            volunteerId,
-            traineeId,
-            volunteerId,
-            transaction,
-          );
-        }
-      }
-
-      if (intent === AttendanceIntent.NONE) {
-        await this.attendeeRepository.removePairingsForUsers(
-          eventId,
-          [volunteerId],
-          transaction,
-        );
-        await this.attendeeRepository.removeAttendee(
+          traineeId,
           volunteerId,
-          eventId,
           transaction,
         );
       }
-    });
+    }
 
-    return this.getParticipantsByEvent(eventId, actor);
+    if (intent === AttendanceIntent.NONE) {
+      await this.attendeeRepository.removePairingsForUsers(
+        eventId,
+        [volunteerId],
+        transaction,
+      );
+      await this.attendeeRepository.removeAttendee(
+        volunteerId,
+        eventId,
+        transaction,
+      );
+    }
   }
 
   private async updateTraineeAttendanceIntent(
@@ -270,6 +321,7 @@ export default class AttendeeService {
     actor: AuthenticatedUser,
     traineeId: string,
     event: Event,
+    transaction: Transaction,
   ) {
     this.assertTrainee(actor);
 
@@ -294,40 +346,36 @@ export default class AttendeeService {
     });
     const volunteerId = assignment?.mentorId;
 
-    await this.sequelize.transaction(async (transaction) => {
-      if (intent === AttendanceIntent.TRAINEE_ONLY) {
-        await this.attendeeRepository.ensureAttendee(
+    if (intent === AttendanceIntent.TRAINEE_ONLY) {
+      await this.attendeeRepository.ensureAttendee(
+        traineeId,
+        eventId,
+        transaction,
+      );
+      if (volunteerId) {
+        await this.tryCreateAssignedPairingIfCounterpartAttending(
+          eventId,
+          event,
+          volunteerId,
           traineeId,
-          eventId,
-          transaction,
-        );
-        if (volunteerId) {
-          await this.tryCreateAssignedPairingIfCounterpartAttending(
-            eventId,
-            event,
-            volunteerId,
-            traineeId,
-            traineeId,
-            transaction,
-          );
-        }
-      }
-
-      if (intent === AttendanceIntent.NONE) {
-        await this.attendeeRepository.removePairingsForUsers(
-          eventId,
-          [traineeId],
-          transaction,
-        );
-        await this.attendeeRepository.removeAttendee(
           traineeId,
-          eventId,
           transaction,
         );
       }
-    });
+    }
 
-    return this.getParticipantsByEvent(eventId, actor);
+    if (intent === AttendanceIntent.NONE) {
+      await this.attendeeRepository.removePairingsForUsers(
+        eventId,
+        [traineeId],
+        transaction,
+      );
+      await this.attendeeRepository.removeAttendee(
+        traineeId,
+        eventId,
+        transaction,
+      );
+    }
   }
 
   private async tryCreateAssignedPairingIfCounterpartAttending(
@@ -338,6 +386,16 @@ export default class AttendeeService {
     attendingUserId: string,
     transaction: Transaction,
   ) {
+    try {
+      await this.authorization.assertEligibleParticipants(
+        [volunteerId, traineeId],
+        event,
+        transaction,
+      );
+    } catch (error) {
+      if (error instanceof ForbiddenException) return;
+      throw error;
+    }
     const counterpartId =
       attendingUserId === volunteerId ? traineeId : volunteerId;
     const counterpartAttendee =
@@ -367,12 +425,10 @@ export default class AttendeeService {
 
   public async getParticipantsByEvent(
     eventId: string,
-    actor?: AuthenticatedUser,
+    actor: AuthenticatedUser,
   ) {
     const event = await this.getEventOrThrow(eventId);
-    if (actor) {
-      this.assertBranchAccess(actor, event.branchId);
-    }
+    this.authorization.assertEventAccess(actor, event);
 
     const { attendees, pairings } =
       await this.attendeeRepository.getStructuredParticipants(eventId);
@@ -430,15 +486,28 @@ export default class AttendeeService {
   public async getEventAssignmentRecipients(
     eventId: string,
   ): Promise<EventAssignmentRecipient[]> {
+    const event = await this.getEventOrThrow(eventId);
     const { attendees, pairings } =
       await this.attendeeRepository.getStructuredParticipants(eventId, {
         includeAssignmentGender: true,
       });
+    const attendeeUsers = new Map(attendees.map((a) => [a.userId, a.user]));
+    const eligiblePairings = pairings.filter(
+      (p) =>
+        matchesEventAudience(
+          userAudienceActor(attendeeUsers.get(p.mentorId) ?? {}),
+          event,
+        ) &&
+        matchesEventAudience(
+          userAudienceActor(attendeeUsers.get(p.traineeId) ?? {}),
+          event,
+        ),
+    );
     const pairingByMentorId = new Map(
-      pairings.map((pairing) => [pairing.mentorId, pairing]),
+      eligiblePairings.map((pairing) => [pairing.mentorId, pairing]),
     );
     const pairingsByTraineeId = new Map<string, any[]>();
-    pairings.forEach((pairing) => {
+    eligiblePairings.forEach((pairing) => {
       const traineePairings = pairingsByTraineeId.get(pairing.traineeId) ?? [];
       traineePairings.push(pairing);
       pairingsByTraineeId.set(pairing.traineeId, traineePairings);
@@ -449,6 +518,7 @@ export default class AttendeeService {
 
     attendees.forEach((attendee) => {
       if (
+        !matchesEventAudience(userAudienceActor(attendee.user ?? {}), event) ||
         seenUserIds.has(attendee.userId) ||
         attendee.rsvpStatus === AttendeeRsvpStatus.DECLINED
       ) {
@@ -506,6 +576,20 @@ export default class AttendeeService {
 
     try {
       await this.sequelize.transaction(async (transaction) => {
+        const lockedEvent = await this.authorization.lockEvent(
+          eventId,
+          transaction,
+        );
+        this.authorization.assertAdminForBranch(actor, lockedEvent.branchId);
+        await this.assertUsersBelongToBranch(
+          [mentorId, traineeId],
+          lockedEvent.branchId,
+        );
+        await this.authorization.assertEligibleParticipants(
+          [mentorId, traineeId],
+          lockedEvent,
+          transaction,
+        );
         const [mentorAttendee, traineeAttendee] = await Promise.all([
           this.attendeeRepository.findAttendeeByUserEvent(
             mentorId,

@@ -5,6 +5,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import { AuthorizationService } from '../auth/authorization.service';
+import { matchesEventAudience } from '../event/event-audience';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import UserService from '../user/user.service';
 import EventService from '../event/event.service';
@@ -46,6 +48,7 @@ export default class ActivityService {
     private readonly activityRepository: ActivityRepository,
     private readonly userService: UserService,
     private readonly eventService: EventService,
+    private readonly authorization: AuthorizationService,
   ) {}
 
   public async startActivity(
@@ -109,19 +112,45 @@ export default class ActivityService {
       this.ensureBranchPermission(authUser, volunteerBranchId);
     }
 
-    const activity = await this.activityRepository.create({
-      volunteerId: authUser.userId,
-      traineeId,
-      eventId,
-      branchId: eventBranchId ?? traineeBranchId ?? volunteerBranchId ?? null,
-      startTime: new Date(),
-      status: VolunteerActivityStatus.ACTIVE,
-      notes: null,
-    });
+    const activity = await VolunteerActivity.sequelize!.transaction(
+      async (transaction) => {
+        const lockedEvent = await this.authorization.lockEvent(
+          eventId,
+          transaction,
+        );
+        this.authorization.assertEventAccess(authUser, lockedEvent);
+        this.ensureBranchCompatibility(
+          volunteerBranchId,
+          lockedEvent.branchId ?? volunteerBranchId,
+          'Selected event does not belong to the volunteer branch',
+        );
+        await this.authorization.assertEligibleParticipants(
+          [authUser.userId, traineeId],
+          lockedEvent,
+          transaction,
+        );
+        return this.activityRepository.create(
+          {
+            volunteerId: authUser.userId,
+            traineeId,
+            eventId,
+            branchId:
+              lockedEvent.branchId ??
+              traineeBranchId ??
+              volunteerBranchId ??
+              null,
+            startTime: new Date(),
+            status: VolunteerActivityStatus.ACTIVE,
+            notes: null,
+          },
+          transaction,
+        );
+      },
+    );
 
     const savedActivity = await this.activityRepository.findById(activity.id);
 
-    return this.toActivityResponse(savedActivity ?? activity);
+    return this.toActivityResponse(savedActivity ?? activity, authUser);
   }
 
   public async endActivity(
@@ -164,7 +193,7 @@ export default class ActivityService {
     });
 
     const updatedActivity = await this.activityRepository.findById(activity.id);
-    return this.toActivityResponse(updatedActivity ?? activity);
+    return this.toActivityResponse(updatedActivity ?? activity, authUser);
   }
 
   public async getMyActiveActivity(authUser: AuthUser) {
@@ -173,7 +202,7 @@ export default class ActivityService {
       authUser.userId,
     );
 
-    return activity ? this.toActivityResponse(activity) : null;
+    return activity ? this.toActivityResponse(activity, authUser) : null;
   }
 
   public async getMyHistory(authUser: AuthUser, limit?: string) {
@@ -190,7 +219,9 @@ export default class ActivityService {
       resolvedLimit,
     );
 
-    return activities.map((activity) => this.toActivityResponse(activity));
+    return activities.map((activity) =>
+      this.toActivityResponse(activity, authUser),
+    );
   }
 
   public async getMyYearlySummary(authUser: AuthUser) {
@@ -323,8 +354,10 @@ export default class ActivityService {
     return this.getEventAttendance(authUser, normalizedEventId);
   }
 
-  private toActivityResponse(activity: VolunteerActivity) {
+  private toActivityResponse(activity: VolunteerActivity, actor?: AuthUser) {
     const plainActivity = activity.toJSON() as any;
+    const eventVisible =
+      !actor || !activity.event || matchesEventAudience(actor, activity.event);
     const branch = applyBranchDisplay(activity.branch);
     const durationMinutes = calculateDurationMinutes(
       activity.startTime,
@@ -335,7 +368,7 @@ export default class ActivityService {
       id: activity.id,
       volunteerId: plainActivity.volunteerId,
       traineeId: plainActivity.traineeId,
-      eventId: activity.eventId,
+      eventId: eventVisible ? activity.eventId : null,
       branchId: activity.branchId,
       startTime: activity.startTime,
       endTime: activity.endTime,
@@ -348,7 +381,7 @@ export default class ActivityService {
       timezone: ACTIVITY_TIMEZONE,
       volunteer: plainActivity.volunteer,
       trainee: plainActivity.trainee,
-      event: activity.event,
+      event: eventVisible ? activity.event : null,
       branch,
     };
   }

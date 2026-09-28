@@ -42,6 +42,7 @@ export default class AttendeeController {
       userId,
       eventId,
       body.rsvpStatus ?? AttendeeRsvpStatus.CONFIRMED,
+      req.user,
     );
   }
 
@@ -80,7 +81,11 @@ export default class AttendeeController {
       req.user,
       attendeeId,
     );
-    return await this.attendeeService.updateRsvp(attendeeId, body.rsvpStatus);
+    return await this.attendeeService.updateRsvp(
+      attendeeId,
+      body.rsvpStatus,
+      req.user,
+    );
   }
 
   @Put(':attendeeId/checkin')

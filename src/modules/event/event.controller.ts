@@ -179,7 +179,7 @@ export default class EventController {
       this.authorizationService.assertSuperAdmin(req.user);
     }
 
-    return await this.eventService.findAllEvents(branchId);
+    return await this.eventService.findAllEvents(branchId, req.user);
   }
 
   @Get('upcoming/:branchId')
@@ -192,6 +192,7 @@ export default class EventController {
     return await this.eventService.getUpcomingByBranch(
       branchId,
       Number(limit) || 5,
+      req.user,
     );
   }
 
@@ -212,6 +213,7 @@ export default class EventController {
     return await this.eventService.addAttendee(
       attendeeData.userId,
       attendeeData.eventId,
+      req.user,
     );
   }
 

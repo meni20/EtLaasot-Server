@@ -7,6 +7,7 @@ import BranchRepository from './branch.repository';
 import { IBranch } from './interfaces/branch.interface';
 import UserService from '../user/user.service';
 import EventService from '../event/event.service';
+import type { AuthUser } from '../auth/authorization.service';
 import AttendeeService from '../attendee/attendee.service';
 import MentorAssignmentService from '../mentor-assignment/mentor-assignment.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
@@ -53,7 +54,7 @@ export default class BranchService {
     return branch;
   }
 
-  public async getBranchDashboard(branchId: string) {
+  public async getBranchDashboard(branchId: string, actor: AuthUser) {
     try {
       const [
         totalVolunteers,
@@ -69,7 +70,7 @@ export default class BranchService {
           AUTH_ROLES.VOLUNTEER.id,
         ),
         this.userService.countByBranchAndRole(branchId, AUTH_ROLES.TRAINEE.id),
-        this.eventService.getUpcomingByBranch(branchId, 100),
+        this.eventService.getUpcomingByBranch(branchId, 100, actor),
         this.attendeeService.getRecentAttendanceByBranch(branchId, 30),
         this.attendeeService.getMonthlyStatsByBranch(branchId, 6),
         this.mentorAssignmentService.getAssignmentsByBranch(branchId),
