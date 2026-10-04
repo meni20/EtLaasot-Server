@@ -34,7 +34,7 @@ export default class BranchController {
   @Get(':branchId/dashboard')
   getBranchDashboard(@Param('branchId') branchId: string, @Req() req: any) {
     this.authorizationService.assertAdminForBranch(req.user, branchId);
-    return this.branchService.getBranchDashboard(branchId);
+    return this.branchService.getBranchDashboard(branchId, req.user);
   }
 
   @Get(':branchId')

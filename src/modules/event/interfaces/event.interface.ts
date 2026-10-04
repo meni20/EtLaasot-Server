@@ -1,4 +1,7 @@
+import type { EventAudience } from '../event-audience';
+
 export interface IEvent {
+  audience?: EventAudience;
   id?: string;
   name: string;
   startDate: Date;

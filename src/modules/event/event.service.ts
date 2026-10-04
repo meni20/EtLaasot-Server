@@ -7,6 +7,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import EventRepository from './event.repository';
+import type { AuthUser } from '../auth/authorization.service';
 import { IEvent } from './interfaces/event.interface';
 import AttendeeService, {
   type EventAssignmentRecipient,
@@ -120,19 +121,20 @@ export default class EventService {
     }
   }
 
-  public async findAllEvents(branchId?: string) {
+  public async findAllEvents(branchId: string | undefined, actor: AuthUser) {
     try {
-      const events = await this.eventRepository.findAll(branchId);
+      const events = await this.eventRepository.findAll(branchId, actor);
       return events.map((event) => this.serializeEvent(event));
     } catch (error) {
       throw new InternalServerErrorException('Failed to fetch events');
     }
   }
 
-  public async addAttendee(userId: string, eventId: string) {
+  public async addAttendee(userId: string, eventId: string, actor: AuthUser) {
     try {
-      return await this.attendeeService.addAttendee(userId, eventId);
+      return await this.attendeeService.addAttendee(userId, eventId, actor);
     } catch (error) {
+      if (error instanceof HttpException) throw error;
       throw new InternalServerErrorException('Failed to add attendee to event');
     }
   }
@@ -147,11 +149,16 @@ export default class EventService {
     }
   }
 
-  public async getUpcomingByBranch(branchId: string, limit: number) {
+  public async getUpcomingByBranch(
+    branchId: string,
+    limit: number,
+    actor: AuthUser,
+  ) {
     try {
       const events = await this.eventRepository.getUpcomingByBranch(
         branchId,
         limit,
+        actor,
       );
       return events.map((event) => this.serializeEvent(event));
     } catch (error) {
@@ -163,12 +170,14 @@ export default class EventService {
     branchId: string,
     startDate: Date,
     endDate: Date,
+    actor: AuthUser,
   ) {
     try {
       const events = await this.eventRepository.getEventsByBranchAndDateRange(
         branchId,
         startDate,
         endDate,
+        actor,
       );
       return events.map((event) => this.serializeEvent(event));
     } catch (error) {

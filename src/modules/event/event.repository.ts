@@ -1,5 +1,10 @@
 import { Op, Transaction } from 'sequelize';
 import { Injectable } from '@nestjs/common';
+import {
+  AuthorizationService,
+  type AuthUser,
+} from '../auth/authorization.service';
+import { eventAudienceWhere } from './event-audience';
 import Event from './entities/event.entity';
 import User from '../user/entities/user.entity';
 import { IEvent } from './interfaces/event.interface';
@@ -8,19 +13,23 @@ import CalendarMonthBackground from './entities/calendar-month-background.entity
 
 @Injectable()
 export default class EventRepository {
+  constructor(private readonly authorization: AuthorizationService) {}
   public async create(eventDate: IEvent, transaction?: Transaction) {
     return await Event.create(eventDate, { transaction });
   }
 
   public async updateEvent(id: string, eventData: Partial<IEvent>) {
-    const event = await Event.findByPk(id);
-
-    if (!event) {
-      return null;
-    }
-
-    await event.update(eventData);
-    return event;
+    return Event.sequelize!.transaction(async (transaction) => {
+      const event = await this.authorization.lockEvent(id, transaction);
+      const audience = eventData.audience ?? event.audience ?? 'ALL';
+      await this.authorization.assertAudienceChangeAllowed(
+        event,
+        { audience, branchId: eventData.branchId ?? event.branchId },
+        transaction,
+      );
+      await event.update({ ...eventData, audience }, { transaction });
+      return event;
+    });
   }
 
   public async updateImagePath(id: string, imagePath: string | null) {
@@ -49,8 +58,11 @@ export default class EventRepository {
     return event;
   }
 
-  public async findAll(branchId?: string): Promise<Event[]> {
-    const where: any = {};
+  public async findAll(
+    branchId: string | undefined,
+    actor: AuthUser,
+  ): Promise<Event[]> {
+    const where: any = { ...eventAudienceWhere(actor, branchId) };
     if (branchId) where.branchId = branchId;
 
     return Event.findAll({
@@ -85,13 +97,18 @@ export default class EventRepository {
     });
   }
 
-  public async getUpcomingByBranch(branchId: string, limit: number) {
+  public async getUpcomingByBranch(
+    branchId: string,
+    limit: number,
+    actor: AuthUser,
+  ) {
     const now = new Date();
 
     return Event.findAll({
       where: {
         branchId,
         startDate: { [Op.gte]: now },
+        ...eventAudienceWhere(actor, branchId),
       },
       order: [['start_date', 'ASC']],
       limit,
@@ -103,11 +120,13 @@ export default class EventRepository {
     branchId: string,
     startDate: Date,
     endDate: Date,
+    actor: AuthUser,
   ) {
     return Event.findAll({
       where: {
         branchId,
         startDate: { [Op.between]: [startDate, endDate] },
+        ...eventAudienceWhere(actor, branchId),
       },
       include: [
         {

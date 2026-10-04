@@ -1,5 +1,6 @@
 import {
   ForbiddenException,
+  ConflictException,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -9,6 +10,14 @@ import Event from '../event/entities/event.entity';
 import MentorAssignment from '../mentor-assignment/entities/mentor-assignment.entity';
 import User from '../user/entities/user.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
+import { Op, Transaction } from 'sequelize';
+import VolunteerActivity from '../activity/entities/activity.entity';
+import { VolunteerActivityStatus } from '../activity/activity.constants';
+import {
+  matchesEventAudience,
+  userAudienceActor,
+  type AudienceEvent,
+} from '../event/event-audience';
 
 type AuthRole = {
   roleId: number;
@@ -26,6 +35,102 @@ export type AuthUser = {
 
 @Injectable()
 export class AuthorizationService {
+  assertEventAccess(actor: AuthUser, event: AudienceEvent) {
+    this.assertBranchAccess(actor, event.branchId ?? '');
+    if (!matchesEventAudience(actor, event)) {
+      throw new ForbiddenException('Event audience access denied');
+    }
+  }
+
+  async lockEvent(eventId: string, transaction: Transaction) {
+    const event = await Event.findByPk(eventId, {
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!event) throw new NotFoundException('Event not found');
+    return event;
+  }
+
+  async assertEligibleParticipants(
+    userIds: string[],
+    event: AudienceEvent,
+    transaction?: Transaction,
+  ) {
+    if (!event.audience || event.audience === 'ALL') return;
+    const users = await User.findAll({
+      where: { id: { [Op.in]: [...new Set(userIds)] } },
+      include: [UserRole],
+      transaction,
+    });
+    if (
+      users.length !== new Set(userIds).size ||
+      users.some(
+        (user) => !matchesEventAudience(userAudienceActor(user), event),
+      )
+    ) {
+      throw new ForbiddenException(
+        'Participant does not match the event audience',
+      );
+    }
+  }
+
+  async assertAudienceChangeAllowed(
+    event: Event,
+    next: AudienceEvent,
+    transaction: Transaction,
+  ) {
+    if (
+      next.audience === 'ALL' ||
+      (next.audience === event.audience && next.branchId === event.branchId)
+    )
+      return;
+    const [attendees, activities] = await Promise.all([
+      Attendee.findAll({
+        where: { eventId: event.id },
+        attributes: ['userId'],
+        transaction,
+      }),
+      VolunteerActivity.findAll({
+        where: { eventId: event.id, status: VolunteerActivityStatus.ACTIVE },
+        attributes: ['id', 'volunteerId', 'traineeId'],
+        transaction,
+      }),
+    ]);
+    const ids = [
+      ...new Set([
+        ...attendees.map((a) => a.userId),
+        ...activities.flatMap((a) => [a.volunteerId, a.traineeId]),
+      ]),
+    ];
+    if (!ids.length) return;
+    const users = await User.findAll({
+      where: { id: { [Op.in]: ids } },
+      include: [UserRole],
+      transaction,
+    });
+    const eligible = new Set(
+      users
+        .filter((u) => matchesEventAudience(userAudienceActor(u), next))
+        .map((u) => u.id),
+    );
+    const participantCount = attendees.filter(
+      (a) => !eligible.has(a.userId),
+    ).length;
+    const activeActivityCount = activities.filter(
+      (a) => !eligible.has(a.volunteerId) || !eligible.has(a.traineeId),
+    ).length;
+    if (participantCount || activeActivityCount) {
+      throw new ConflictException({
+        statusCode: 409,
+        code: 'EVENT_AUDIENCE_CONFLICT',
+        message:
+          'Resolve incompatible participants and active activities before changing the audience',
+        participantCount,
+        activeActivityCount,
+      });
+    }
+  }
+
   getActorId(user: AuthUser) {
     return user.userId ?? user.sub;
   }

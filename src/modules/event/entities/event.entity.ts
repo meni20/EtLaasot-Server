@@ -17,6 +17,7 @@ import EventPairing from 'src/modules/attendee/entities/event-pairing.entity';
 import Branch from 'src/modules/branch/entities/branch.entity';
 import VolunteerActivity from 'src/modules/activity/entities/activity.entity';
 import User from 'src/modules/user/entities/user.entity';
+import type { EventAudience } from '../event-audience';
 
 @Table({ tableName: 'event', paranoid: true, timestamps: true })
 export default class Event extends Model<IEvent> {
@@ -44,6 +45,9 @@ export default class Event extends Model<IEvent> {
 
   @Column({ type: DataType.STRING(30), defaultValue: 'general' })
   declare eventType: string;
+
+  @Column({ type: DataType.STRING(20), allowNull: false, defaultValue: 'ALL' })
+  declare audience: EventAudience;
 
   @Column({ field: 'image_path', type: DataType.TEXT, allowNull: true })
   declare imagePath: string | null;
