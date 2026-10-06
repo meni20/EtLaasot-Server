@@ -11,8 +11,10 @@ export default class DashboardService {
   constructor(private readonly dashboardRepository: DashboardRepository) {}
 
   public async getSuperAdminDashboard(): Promise<SuperAdminDashboardResponse> {
-    const branchRows =
-      await this.dashboardRepository.getSuperAdminBranchSummaries();
+    const [branchRows, installationStats] = await Promise.all([
+      this.dashboardRepository.getSuperAdminBranchSummaries(),
+      this.dashboardRepository.getPwaInstallationStats(),
+    ]);
     const branches = branchRows.map((branch) => {
       const displayBranch = applyBranchDisplay({
         id: branch.branchId,
@@ -26,7 +28,11 @@ export default class DashboardService {
     });
 
     return {
-      totals: this.calculateTotals(branches),
+      totals: {
+        ...this.calculateTotals(branches),
+        pwaInstallations: installationStats.totalInstallations,
+        pwaUniqueInstallers: installationStats.uniqueInstallers,
+      },
       branches,
     };
   }

@@ -39,4 +39,22 @@ describe('DashboardRepository', () => {
     expect(sql).toContain('e.start_date >= NOW()');
     expect(sql).not.toMatch(/\bLIMIT\b/i);
   });
+
+  it('counts total installations and distinct installing users', async () => {
+    const query = jest
+      .fn()
+      .mockResolvedValue([{ totalInstallations: '2', uniqueInstallers: '1' }]);
+    const repository = new DashboardRepository({
+      query,
+    } as unknown as Sequelize);
+
+    await expect(repository.getPwaInstallationStats()).resolves.toEqual({
+      totalInstallations: 2,
+      uniqueInstallers: 1,
+    });
+
+    const sql = query.mock.calls[0][0] as string;
+    expect(sql).toContain('COUNT(*)');
+    expect(sql).toContain('COUNT(DISTINCT user_uuid)');
+  });
 });

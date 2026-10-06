@@ -13,8 +13,11 @@ import { MentorAssignmentModule } from './modules/mentor-assignment/mentor-assig
 import { ActivityModule } from './modules/activity/activity.module';
 import { EmailModule } from './modules/email/email.module';
 import { DashboardModule } from './modules/dashboard/dashboard.module';
+import { FeedbackModule } from './modules/feedback/feedback.module';
 import { TraineeMedicationModule } from './modules/trainee-medication/trainee-medication.module';
 import { TraineeDocumentModule } from './modules/trainee-document/trainee-document.module';
+import { PwaInstallationModule } from './modules/pwa-installation/pwa-installation.module';
+import { PushNotificationModule } from './modules/push-notification/push-notification.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -104,8 +107,11 @@ const getDbDialectOptions = () => {
     ActivityModule,
     EmailModule,
     DashboardModule,
+    FeedbackModule,
     TraineeMedicationModule,
     TraineeDocumentModule,
+    PwaInstallationModule,
+    PushNotificationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

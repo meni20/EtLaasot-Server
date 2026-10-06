@@ -15,6 +15,13 @@ export interface SuperAdminDashboardTotals {
   activeAssignments: number;
   unassignedTrainees: number;
   upcomingEvents: number;
+  pwaInstallations: number;
+  pwaUniqueInstallers: number;
+}
+
+export interface PwaInstallationStats {
+  totalInstallations: number;
+  uniqueInstallers: number;
 }
 
 export interface SuperAdminDashboardResponse {
