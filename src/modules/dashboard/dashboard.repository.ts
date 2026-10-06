@@ -2,7 +2,10 @@ import { Injectable } from '@nestjs/common';
 import { QueryTypes } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
-import type { SuperAdminBranchSummary } from './interfaces/dashboard.interface';
+import type {
+  PwaInstallationStats,
+  SuperAdminBranchSummary,
+} from './interfaces/dashboard.interface';
 
 type DashboardAggregateRow = {
   branchId: string;
@@ -12,6 +15,11 @@ type DashboardAggregateRow = {
   activeAssignments: string | number;
   unassignedTrainees: string | number;
   upcomingEvents: string | number;
+};
+
+type PwaInstallationStatsRow = {
+  totalInstallations: string | number;
+  uniqueInstallers: string | number;
 };
 
 @Injectable()
@@ -122,5 +130,23 @@ export default class DashboardRepository {
       unassignedTrainees: Number(row.unassignedTrainees),
       upcomingEvents: Number(row.upcomingEvents),
     }));
+  }
+
+  public async getPwaInstallationStats(): Promise<PwaInstallationStats> {
+    const rows = await this.sequelize.query<PwaInstallationStatsRow>(
+      `
+        SELECT
+          COUNT(*) AS "totalInstallations",
+          COUNT(DISTINCT user_uuid) AS "uniqueInstallers"
+        FROM pwa_installations
+      `,
+      { type: QueryTypes.SELECT },
+    );
+    const row = rows[0];
+
+    return {
+      totalInstallations: Number(row?.totalInstallations ?? 0),
+      uniqueInstallers: Number(row?.uniqueInstallers ?? 0),
+    };
   }
 }

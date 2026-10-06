@@ -16,6 +16,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { TraineeMedicationModule } from './modules/trainee-medication/trainee-medication.module';
 import { TraineeDocumentModule } from './modules/trainee-document/trainee-document.module';
+import { PwaInstallationModule } from './modules/pwa-installation/pwa-installation.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -108,6 +109,7 @@ const getDbDialectOptions = () => {
     FeedbackModule,
     TraineeMedicationModule,
     TraineeDocumentModule,
+    PwaInstallationModule,
   ],
   controllers: [AppController],
   providers: [AppService],

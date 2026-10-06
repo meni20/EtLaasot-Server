@@ -24,6 +24,10 @@ describe('DashboardService', () => {
           upcomingEvents: 8,
         },
       ]),
+      getPwaInstallationStats: jest.fn().mockResolvedValue({
+        totalInstallations: 2,
+        uniqueInstallers: 1,
+      }),
     };
     const service = new DashboardService(
       dashboardRepository as unknown as DashboardRepository,
@@ -38,6 +42,8 @@ describe('DashboardService', () => {
       activeAssignments: 6,
       unassignedTrainees: 4,
       upcomingEvents: 13,
+      pwaInstallations: 2,
+      pwaUniqueInstallers: 1,
     });
     expect(result.branches).toHaveLength(2);
   });
