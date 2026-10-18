@@ -6,9 +6,13 @@ import {
 } from '@nestjs/common';
 import { TraineeDocumentStorageService } from '../storage/trainee-document-storage.service';
 import TraineeDocument from './entities/trainee-document.entity';
-import type { TraineeDocumentDto } from './dtos/trainee-document.dto';
+import type {
+  AdminTraineeDocumentPageDto,
+  TraineeDocumentDto,
+} from './dtos/trainee-document.dto';
 import { DocumentType } from './trainee-document.constants';
 import { TraineeDocumentRepository } from './trainee-document.repository';
+import type { AdminDocumentListQuery } from './trainee-document.repository';
 import { validateDocumentFile } from './trainee-document.validation';
 
 @Injectable()
@@ -23,6 +27,28 @@ export class TraineeDocumentService {
     return (await this.repository.findAll(traineeUuid)).map((document) =>
       this.toDto(document),
     );
+  }
+
+  async listAdmin(
+    query: AdminDocumentListQuery,
+  ): Promise<AdminTraineeDocumentPageDto> {
+    const { rows, count } = await this.repository.findAdminDocuments(query);
+    return {
+      items: rows.map((document) => {
+        const traineeRole = document.trainee.userRoles?.[0];
+        return {
+          ...this.toDto(document),
+          traineeUuid: document.traineeUuid,
+          traineeName: document.trainee.name,
+          branchId:
+            document.trainee.branchId ?? traineeRole?.resourceId ?? null,
+          branchName: document.trainee.branch?.name ?? null,
+        };
+      }),
+      total: count,
+      page: query.page,
+      pageSize: query.pageSize,
+    };
   }
 
   async upload(

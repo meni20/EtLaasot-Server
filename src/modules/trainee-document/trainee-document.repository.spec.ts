@@ -1,4 +1,5 @@
 import { Sequelize } from 'sequelize-typescript';
+import { Op } from 'sequelize';
 import User from '../user/entities/user.entity';
 import TraineeDocument from './entities/trainee-document.entity';
 import { TraineeDocumentRepository } from './trainee-document.repository';
@@ -96,5 +97,30 @@ describe('Document repository transactional serialization', () => {
       where: { storagePath: 'new' },
       transaction,
     });
+  });
+
+  it('uses one safe paginated query for the admin document list', async () => {
+    const findAndCountAll = jest
+      .spyOn(TraineeDocument, 'findAndCountAll')
+      .mockResolvedValue({ rows: [], count: 0 });
+    await repository.findAdminDocuments({
+      branchIds: ['branch-a'],
+      documentType,
+      search: 'name',
+      page: 3,
+      pageSize: 20,
+    });
+
+    const options = findAndCountAll.mock.calls[0][0]!;
+    expect(options).toMatchObject({
+      distinct: true,
+      subQuery: false,
+      limit: 20,
+      offset: 40,
+    });
+    expect(options.attributes).not.toContain('storagePath');
+    expect(options.attributes).not.toContain('storage_path');
+    expect((options.where as any)[Op.and]).toHaveLength(3);
+    expect(options.include).toHaveLength(1);
   });
 });

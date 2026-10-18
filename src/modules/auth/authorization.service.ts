@@ -198,6 +198,32 @@ export class AuthorizationService {
     this.assertAdminForBranch(user, branchId ?? '');
   }
 
+  resolveAdminBranchScope(user: AuthUser, requestedBranchId?: string) {
+    if (requestedBranchId) {
+      this.assertAdminForBranch(user, requestedBranchId);
+      return [requestedBranchId];
+    }
+
+    if (this.isSuperAdmin(user)) {
+      return undefined;
+    }
+
+    const branchIds = [
+      ...new Set(
+        (user.roles ?? [])
+          .filter((role) => role.roleId === AUTH_ROLES.BRANCH_ADMIN.id)
+          .map((role) => this.getRoleBranchId(role))
+          .filter((branchId): branchId is string => Boolean(branchId)),
+      ),
+    ];
+
+    if (!branchIds.length) {
+      throw new ForbiddenException('Admin role is required');
+    }
+
+    return branchIds;
+  }
+
   async assertBranchAccessForEvent(user: AuthUser, eventId: string) {
     const branchId = await this.getEventBranchId(eventId);
     this.assertBranchAccess(user, branchId);
