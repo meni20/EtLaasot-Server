@@ -1,5 +1,6 @@
 import {
   Column,
+  BelongsTo,
   DataType,
   Default,
   ForeignKey,
@@ -42,6 +43,9 @@ export default class TraineeDocument extends Model {
     onUpdate: 'CASCADE',
   })
   declare traineeUuid: string;
+
+  @BelongsTo(() => User, 'traineeUuid')
+  declare trainee: User;
 
   @Column({
     type: DataType.STRING(32),

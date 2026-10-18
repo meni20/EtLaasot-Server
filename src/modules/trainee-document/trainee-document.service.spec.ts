@@ -29,6 +29,7 @@ describe('TraineeDocumentService lifecycle', () => {
     replace: jest.fn(),
     remove: jest.fn(),
     isPathReferenced: jest.fn(),
+    findAdminDocuments: jest.fn(),
   };
   const storage = {
     buildPath: jest.fn(),
@@ -80,6 +81,48 @@ describe('TraineeDocumentService lifecycle', () => {
       ].sort(),
     );
     expect(storage.remove).not.toHaveBeenCalled();
+  });
+
+  it('returns safe paginated admin metadata with trainee and branch details', async () => {
+    repository.findAdminDocuments.mockResolvedValue({
+      rows: [
+        {
+          ...row,
+          storagePath: 'must-not-leak',
+          trainee: {
+            id: trainee,
+            name: 'Trainee Name',
+            branchId: 'branch-a',
+            branch: { id: 'branch-a', name: 'Branch A' },
+            userRoles: [{ resourceId: 'branch-a' }],
+          },
+        },
+      ],
+      count: 1,
+    });
+    const result = await service.listAdmin({
+      branchIds: ['branch-a'],
+      documentType: type,
+      search: 'Trainee',
+      page: 2,
+      pageSize: 10,
+    });
+    expect(result).toEqual({
+      items: [
+        expect.objectContaining({
+          id: row.id,
+          traineeUuid: trainee,
+          traineeName: 'Trainee Name',
+          branchId: 'branch-a',
+          branchName: 'Branch A',
+        }),
+      ],
+      total: 1,
+      page: 2,
+      pageSize: 10,
+    });
+    expect(result.items[0]).not.toHaveProperty('storagePath');
+    expect(result.items[0]).not.toHaveProperty('signedUrl');
   });
 
   it('does not remove the previous file until upload and DB replacement succeed', async () => {
