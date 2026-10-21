@@ -18,6 +18,7 @@ import { TraineeMedicationModule } from './modules/trainee-medication/trainee-me
 import { TraineeDocumentModule } from './modules/trainee-document/trainee-document.module';
 import { PwaInstallationModule } from './modules/pwa-installation/pwa-installation.module';
 import { PushNotificationModule } from './modules/push-notification/push-notification.module';
+import { registrationFeatureModules } from './modules/parent-registration/parent-registration.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -112,6 +113,8 @@ const getDbDialectOptions = () => {
     TraineeDocumentModule,
     PwaInstallationModule,
     PushNotificationModule,
+    // No models/routes or schema sync for this feature until explicitly enabled.
+    ...registrationFeatureModules(),
   ],
   controllers: [AppController],
   providers: [AppService],

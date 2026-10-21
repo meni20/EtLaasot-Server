@@ -22,6 +22,9 @@
     "test:debug": "node --experimental-vm-modules --inspect-brk -r tsconfig-paths/register -r ts-node/register node_modules/jest/bin/jest.js --runInBand",
     "test:e2e": "npm run test -- --config ./test/jest-e2e.json",
     "migrate": "node scripts/run-migrations.cjs",
+    "test:parent-registration": "npm run test -- --runInBand src/modules/parent-registration",
+    "test:parent-registration:db": "node scripts/test-parent-registration-db.cjs",
+    "typecheck:parent-registration": "tsc -p test/parent-registration/tsconfig.json",
     "auth:bootstrap-passwords": "ts-node -r tsconfig-paths/register src/scripts/bootstrap-passwords.ts",
     "email:test": "ts-node -r tsconfig-paths/register src/scripts/send-test-email.ts",
     "seed": "ts-node -r tsconfig-paths/register src/seed.ts"
