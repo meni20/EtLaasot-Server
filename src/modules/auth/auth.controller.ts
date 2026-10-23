@@ -15,6 +15,7 @@ import { JwtAuthGuard } from './guards/jwt-auth.guard';
 import type { Response } from 'express';
 import { useSecureCookies } from 'src/config/env.util';
 import { AllowPasswordChangeRequired } from './decorators/allow-password-change-required.decorator';
+import { AllowRegistrationAccess } from '../parent-registration/registration-request-access';
 
 class LoginDto {
   @IsString()
@@ -98,6 +99,7 @@ export default class AuthController {
   }
 
   @Get('me')
+  @AllowRegistrationAccess()
   @Header('Cache-Control', 'private, no-store')
   @UseGuards(JwtAuthGuard)
   @AllowPasswordChangeRequired()
@@ -107,6 +109,7 @@ export default class AuthController {
   }
 
   @Patch('change-password')
+  @AllowRegistrationAccess()
   @UseGuards(JwtAuthGuard)
   @AllowPasswordChangeRequired()
   changePassword(@Body() body: ChangePasswordDto, @Req() req: any) {

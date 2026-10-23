@@ -1,8 +1,14 @@
 import {
+  RegistrationIntegrationService,
+  submittedEvidence,
+} from './registration-integration.service';
+import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
   Injectable,
+  Optional,
+  NotFoundException,
 } from '@nestjs/common';
 import type { Transaction } from 'sequelize';
 import { AUTH_ROLES } from '../../constants/auth.constants';
@@ -56,6 +62,7 @@ export class RegistrationService {
     private readonly repo: RegistrationRepository,
     private readonly auth: AuthorizationService,
     private readonly generator: RegistrationDocumentGenerator,
+    @Optional() private readonly integration?: RegistrationIntegrationService,
   ) {}
   private actor(actor: AuthUser) {
     const id = this.auth.getActorId(actor);
@@ -76,6 +83,9 @@ export class RegistrationService {
   ) {
     return this.repo.transaction(async (t) => {
       const target = await this.repo.lockTrainee(id, t);
+      if (this.integration?.enabled()) {
+        await this.integration.attest(t);
+      }
       if (!target.roles.some((r) => r.roleId === AUTH_ROLES.TRAINEE.id))
         throw new ForbiddenException('Target must be a trainee');
       return work(target, t);
@@ -145,11 +155,25 @@ export class RegistrationService {
       const form = await this.repo.active(user.id, t);
       const approved = await this.repo.latestApproved(user.id, t);
       if (form) await this.ownedForm(form, user.id, user.branchId);
-      const data = form ? readData(form.draftData) : {};
       // Approved evidence remains available across renewals, without exposing another branch's review data.
       const previous = approved
         ? await this.repo.latestVersion(approved.id, t)
         : null;
+      const applicationData =
+        !form && !previous && this.integration?.enabled()
+          ? await this.repo.approvedApplicationData(user.id, user.branchId, t)
+          : null;
+      const data = form
+        ? readData(form.draftData)
+        : previous
+          ? readData(previous.formData)
+          : applicationData
+            ? readData(applicationData)
+            : {};
+      if (!form) {
+        delete data.signatures;
+        if (data.medical) delete data.medical.physicianSummaryDocumentId;
+      }
       return {
         form: this.summary(form),
         data,
@@ -229,115 +253,196 @@ export class RegistrationService {
       return { form: this.summary(form), data: next, contentHash: hash };
     });
   }
-  submit(actor: AuthUser, input: SubmitDto) {
-    return this.withTrainee(this.self(actor), async ({ user }, t) => {
-      const form = await this.repo.form(input.formId, t);
-      await this.ownedForm(form, user.id, user.branchId);
-      const prior = await this.repo.idempotent(
-        form.id,
-        input.idempotencyKey,
-        t,
-      );
-      if (prior) {
-        if (prior.submittedRevision !== input.revision)
-          throw new ConflictException(
-            'Idempotency key belongs to a different submission revision',
+  async submit(actor: AuthUser, input: SubmitDto) {
+    const result = await this.withTrainee(
+      this.self(actor),
+      async ({ user }, t) => {
+        const form = await this.repo.form(input.formId, t);
+        await this.ownedForm(form, user.id, user.branchId);
+        const prior = await this.repo.idempotent(
+          form.id,
+          input.idempotencyKey,
+          t,
+        );
+        if (prior) {
+          if (prior.submittedRevision !== input.revision)
+            throw new ConflictException(
+              'Idempotency key belongs to a different submission revision',
+            );
+          return {
+            form: this.summary(form),
+            versionId: prior.id,
+            versionNumber: prior.versionNumber,
+            idempotent: true,
+          };
+        }
+        if (!isEditable(form.status))
+          throw new ConflictException('Registration is not editable');
+        this.revision(form, input.revision);
+        const data = readData(form.draftData);
+        validateSubmission(data);
+        const docs = await this.repo.documents(form.id, t);
+        const requireDocument = (id: string, kind: string) => {
+          const doc = docs.find(
+            (d) =>
+              d.id === id &&
+              d.kind === kind &&
+              d.verifiedAt &&
+              d.fileSize > 0 &&
+              /^[a-f0-9]{64}$/.test(d.checksum),
           );
+          if (!doc)
+            throw new ConflictException(
+              'A verified private attachment is required',
+            );
+        };
+        requireDocument(
+          data.medical!.physicianSummaryDocumentId!,
+          'PHYSICIAN_SUMMARY',
+        );
+        if (this.integration?.enabled())
+          await this.integration.verifySigned(
+            'renewal',
+            form.id,
+            data,
+            docs,
+            t,
+          );
+        const signatures = Object.values(data.signatures!);
+        if (
+          new Set(signatures.map((s) => s.documentId)).size !==
+          signatures.length
+        )
+          throw new BadRequestException(
+            'Each parent needs a separate signature asset',
+          );
+        const versions = await this.repo.versions(form.id, t);
+        for (const signature of signatures) {
+          requireDocument(signature.documentId, 'SIGNATURE');
+          if (
+            versions.some((v) =>
+              Object.values(v.formData.signatures ?? {}).some(
+                (s) => s.documentId === signature.documentId,
+              ),
+            )
+          )
+            throw new ConflictException(
+              'Resubmission needs new completed signature assets',
+            );
+        }
+        const versionNumber = (versions[0]?.versionNumber ?? 0) + 1;
+        const version = await this.repo.createVersion(
+          {
+            formId: form.id,
+            versionNumber,
+            formData: protectData(data),
+            templateVersion: TEMPLATE_VERSION,
+            declarationVersion: DECLARATION_VERSION,
+            declarations: [...DECLARATIONS],
+            signingMetadata: {
+              contentHash: contentHash(data),
+              parent1: data.signatures!.parent1!,
+              ...(data.signatures!.parent2
+                ? { parent2: data.signatures!.parent2 }
+                : {}),
+            },
+            idempotencyKey: input.idempotencyKey,
+            submittedRevision: input.revision,
+            submittedAt: new Date(),
+          },
+          t,
+        );
+        await form.update(
+          {
+            status: 'PENDING_REVIEW',
+            submittedAt: new Date(),
+            documentStatus: 'PENDING',
+            feedbackReason: null,
+          },
+          { transaction: t },
+        );
+        await this.repo.history(
+          user.id,
+          versionNumber === 1 ? 'SUBMITTED' : 'RESUBMITTED',
+          t,
+          { formId: form.id, versionId: version.id },
+          { versionNumber, documentStatus: 'PENDING' },
+        );
         return {
           form: this.summary(form),
-          versionId: prior.id,
-          versionNumber: prior.versionNumber,
-          idempotent: true,
-        };
-      }
-      if (!isEditable(form.status))
-        throw new ConflictException('Registration is not editable');
-      this.revision(form, input.revision);
-      const data = readData(form.draftData);
-      validateSubmission(data);
-      const docs = await this.repo.documents(form.id, t);
-      const requireDocument = (id: string, kind: string) => {
-        const doc = docs.find(
-          (d) =>
-            d.id === id &&
-            d.kind === kind &&
-            d.verifiedAt &&
-            d.fileSize > 0 &&
-            /^[a-f0-9]{64}$/.test(d.checksum),
-        );
-        if (!doc)
-          throw new ConflictException(
-            'A verified private attachment is required',
-          );
-      };
-      requireDocument(
-        data.medical!.physicianSummaryDocumentId!,
-        'PHYSICIAN_SUMMARY',
-      );
-      const signatures = Object.values(data.signatures!);
-      if (
-        new Set(signatures.map((s) => s.documentId)).size !== signatures.length
-      )
-        throw new BadRequestException(
-          'Each parent needs a separate signature asset',
-        );
-      const versions = await this.repo.versions(form.id, t);
-      for (const signature of signatures) {
-        requireDocument(signature.documentId, 'SIGNATURE');
-        if (
-          versions.some((v) =>
-            Object.values(v.formData.signatures ?? {}).some(
-              (s) => s.documentId === signature.documentId,
-            ),
-          )
-        )
-          throw new ConflictException(
-            'Resubmission needs new completed signature assets',
-          );
-      }
-      const versionNumber = (versions[0]?.versionNumber ?? 0) + 1;
-      const version = await this.repo.createVersion(
-        {
-          formId: form.id,
+          versionId: version.id,
           versionNumber,
-          formData: protectData(data),
-          templateVersion: TEMPLATE_VERSION,
-          declarationVersion: DECLARATION_VERSION,
-          declarations: [...DECLARATIONS],
-          signingMetadata: {
-            contentHash: contentHash(data),
-            parent1: data.signatures!.parent1!,
-            ...(data.signatures!.parent2
-              ? { parent2: data.signatures!.parent2 }
-              : {}),
-          },
-          idempotencyKey: input.idempotencyKey,
-          submittedRevision: input.revision,
-          submittedAt: new Date(),
-        },
+          idempotent: false,
+        };
+      },
+    );
+    if (this.integration?.enabled())
+      try {
+        await this.generator.requestGeneration(result.versionId);
+        result.form!.documentStatus = 'READY';
+      } catch {
+        result.form!.documentStatus = 'FAILED';
+      }
+    return result;
+  }
+  upload(
+    actor: AuthUser,
+    revision: number,
+    kind: string,
+    bytes: Buffer,
+    signer?: 'parent1' | 'parent2',
+  ) {
+    return this.withTrainee(this.self(actor), async ({ user }, t) => {
+      const form = await this.repo.active(user.id, t);
+      if (!form || !this.integration?.enabled() || !isEditable(form.status))
+        throw new ConflictException('Save an editable draft before uploading');
+      await this.ownedForm(form, user.id, user.branchId);
+      this.revision(form, revision);
+      if (kind !== 'SIGNATURE' && kind !== 'PHYSICIAN_SUMMARY')
+        throw new BadRequestException('Invalid attachment kind');
+      return this.integration.upload(
+        'renewal',
+        form.id,
+        kind,
+        readData(form.draftData),
+        bytes,
+        signer,
         t,
       );
-      await form.update(
-        {
-          status: 'PENDING_REVIEW',
-          submittedAt: new Date(),
-          documentStatus: 'PENDING',
-          feedbackReason: null,
-        },
-        { transaction: t },
-      );
-      await this.repo.history(
-        user.id,
-        versionNumber === 1 ? 'SUBMITTED' : 'RESUBMITTED',
-        t,
-        { formId: form.id, versionId: version.id },
-        { versionNumber, documentStatus: 'PENDING' },
-      );
+    });
+  }
+  async retry(actor: AuthUser) {
+    const id = await this.withTrainee(this.self(actor), async ({ user }, t) => {
+      const form = await this.repo.active(user.id, t);
+      if (!form) throw new NotFoundException();
+      return form.id;
+    });
+    return this.integration!.generate(
+      'renewal',
+      id,
+      undefined,
+      this.actor(actor),
+    );
+  }
+  async adminRetry(actor: AuthUser, id: string) {
+    await this.adminForm(actor, id, async () => true);
+    return this.integration!.generate(
+      'renewal',
+      id,
+      undefined,
+      this.actor(actor),
+    );
+  }
+  document(actor: AuthUser, id: string, documentId: string) {
+    return this.adminForm(actor, id, async (form, _target, t) => {
+      const doc = submittedEvidence(
+        await this.repo.documents(form.id, t),
+        await this.repo.versions(form.id, t),
+      ).find((d) => d.id === documentId);
+      if (!doc) throw new NotFoundException();
       return {
-        form: this.summary(form),
-        versionId: version.id,
-        versionNumber,
-        idempotent: false,
+        bytes: await this.integration!.download(doc, 'renewal', id, t),
+        mimeType: doc.mimeType,
       };
     });
   }
@@ -359,6 +464,7 @@ export class RegistrationService {
   openPeriod(actor: AuthUser, input: OpenPeriodDto) {
     this.auth.assertAdminForBranch(actor, input.branchId);
     return this.repo.transaction(async (t) => {
+      if (this.integration?.enabled()) await this.integration.attest(t);
       await this.repo.openYear(input.activityYearId, t);
       return this.repo.openPeriod(
         input.branchId,
@@ -390,6 +496,9 @@ export class RegistrationService {
         throw new ForbiddenException('Target must be a trainee');
       this.auth.assertAdminForBranch(actor, target.user.branchId);
       const form = await this.repo.form(formId, t);
+      if (this.integration?.enabled()) {
+        await this.integration.attest(t);
+      }
       this.auth.assertAdminForBranch(actor, form.branchId);
       // Historical data requires authority over both historical and current branch.
       this.auth.assertAdminForBranch(actor, target.user.branchId);
@@ -438,7 +547,9 @@ export class RegistrationService {
         medicalSynchronization: 'MANUAL_RECONCILIATION_REQUIRED',
         existingAllergies: user.allergies,
         existingMedications: await this.repo.medications(user.id, t),
-        documents: this.safeDocuments(await this.repo.documents(form.id, t)),
+        documents: this.safeDocuments(
+          submittedEvidence(await this.repo.documents(form.id, t), versions),
+        ),
       };
     });
   }
@@ -497,6 +608,10 @@ export class RegistrationService {
         });
       const data = readData(version.formData);
       validateSubmission(data);
+      if (this.integration?.enabled()) {
+        await this.integration.verifySigned('renewal', form.id, data, docs, t);
+        await this.integration.download(pdf, 'renewal', form.id, t);
+      }
       await user.update(approvedProfileMapping(data), { transaction: t });
       await form.update(
         {
@@ -523,6 +638,7 @@ export class RegistrationService {
           'Renewal branch must match the trainee primary branch',
         );
       this.auth.assertAdminForBranch(actor, user.branchId);
+      if (this.integration?.enabled()) await this.integration.attest(t);
       await this.repo.openYear(input.activityYearId, t);
       if (await this.repo.active(user.id, t))
         throw new ConflictException(
@@ -532,7 +648,12 @@ export class RegistrationService {
       const version = previous
         ? await this.repo.latestVersion(previous.id, t)
         : null;
-      const draft = version ? structuredClone(version.formData) : {};
+      const source =
+        version?.formData ??
+        (this.integration?.enabled()
+          ? await this.repo.approvedApplicationData(user.id, user.branchId, t)
+          : null);
+      const draft = source ? structuredClone(source) : {};
       delete draft.signatures;
       // Attachments belong to their source form. A new verified summary is required.
       if (draft.medical) delete draft.medical.physicianSummaryDocumentId;

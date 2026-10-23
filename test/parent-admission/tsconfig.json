@@ -1,0 +1,16 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "resolvePackageJsonExports": false,
+    "noEmit": true,
+    "types": ["jest", "node", "multer"]
+  },
+  "include": [
+    "../../src/modules/parent-admission/**/*.ts",
+    "../../src/modules/parent-registration/registration-request-access*.ts",
+    "../../src/modules/user/user.admission-provisioning.spec.ts",
+    "./*.ts"
+  ]
+}

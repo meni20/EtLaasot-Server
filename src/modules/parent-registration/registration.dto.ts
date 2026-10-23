@@ -47,6 +47,6 @@ export class FormListDto {
   @IsOptional()
   @IsIn(['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'])
   status?: string;
-  @IsOptional() @IsInt() @Min(1) page = 1;
-  @IsOptional() @IsInt() @Min(1) @Max(100) pageSize = 25;
+  @IsOptional() @IsInt() @Min(1) page: number = 1;
+  @IsOptional() @IsInt() @Min(1) @Max(100) pageSize: number = 25;
 }

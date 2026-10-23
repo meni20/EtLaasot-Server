@@ -20,6 +20,7 @@ import { AuthorizationService } from '../auth/authorization.service';
 import { UpdateCurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { ArchiveUserDto } from './dtos/archive-user.dto';
+import { AllowRegistrationAccess } from '../parent-registration/registration-request-access';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
@@ -30,6 +31,7 @@ export default class UserController {
   ) {}
 
   @Get('me')
+  @AllowRegistrationAccess()
   @Header('Cache-Control', 'private, no-store')
   public getMe(@Req() req: any) {
     return this.userService.getCurrentUserProfile(req.user.userId);
@@ -128,6 +130,7 @@ export default class UserController {
       includeNotes,
       includeNationalIdRevealId,
       this.parseListStatus(status),
+      includeNationalIdRevealId,
     );
   }
 

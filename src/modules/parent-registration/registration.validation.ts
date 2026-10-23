@@ -6,7 +6,10 @@ import {
   decryptNationalId,
   encryptNationalId,
 } from '../user/national-id-encryption.util';
-import { isValidIsraeliNationalId } from '../user/national-id.util';
+import {
+  isValidIsraeliNationalId,
+  normalizeIsraeliNationalId,
+} from '../user/national-id.util';
 import type { ShirtSize } from '../user/interfaces/user.interface';
 
 export type Person = {
@@ -314,6 +317,13 @@ export function validateSubmission(data: RegistrationData) {
       !isValidIsraeliNationalId(data.parent2.nationalId)
     )
       fail('parent2.nationalId');
+  }
+  if (
+    data.signatures?.parent2 &&
+    normalizeIsraeliNationalId(data.parent1!.nationalId!) ===
+      normalizeIsraeliNationalId(data.parent2!.nationalId!)
+  ) {
+    fail('parent2.nationalId');
   }
 }
 function canonical(value: any): string {

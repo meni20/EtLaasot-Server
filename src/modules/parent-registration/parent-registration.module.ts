@@ -1,3 +1,4 @@
+import { RegistrationIntegrationModule } from './registration-integration.module';
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { AuthorizationModule } from '../auth/authorization.module';
@@ -7,7 +8,7 @@ import {
   RegistrationController,
 } from './registration.controller';
 import {
-  DeferredRegistrationDocumentGenerator,
+  IntegratedRegistrationDocumentGenerator,
   RegistrationDocumentGenerator,
 } from './registration-document.generator';
 import {
@@ -21,6 +22,7 @@ import { getBooleanEnv } from '../../config/env.util';
 
 @Module({
   imports: [
+    RegistrationIntegrationModule,
     AuthorizationModule,
     SequelizeModule.forFeature(REGISTRATION_MODELS),
   ],
@@ -33,7 +35,7 @@ import { getBooleanEnv } from '../../config/env.util';
     RegistrationAccessPolicy,
     {
       provide: RegistrationDocumentGenerator,
-      useClass: DeferredRegistrationDocumentGenerator,
+      useClass: IntegratedRegistrationDocumentGenerator,
     },
   ],
   exports: [RegistrationAccessPolicy],
@@ -41,6 +43,14 @@ import { getBooleanEnv } from '../../config/env.util';
 export class ParentRegistrationModule {}
 
 export function registrationFeatureModules() {
+  if (
+    getBooleanEnv('PARENT_REGISTRATION_BLOCKING_ENABLED', false) &&
+    !getBooleanEnv('PARENT_REGISTRATION_ENABLED', false)
+  ) {
+    throw new Error(
+      'Registration blocking requires PARENT_REGISTRATION_ENABLED=true',
+    );
+  }
   if (!getBooleanEnv('PARENT_REGISTRATION_ENABLED', false)) return [];
   if (getBooleanEnv('DB_SYNC', false) || getBooleanEnv('DB_LOGGING', false)) {
     throw new Error(

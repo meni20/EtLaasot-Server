@@ -1,3 +1,5 @@
+import { FileInterceptor } from '@nestjs/platform-express';
+import type { Response } from 'express';
 import {
   Body,
   Controller,
@@ -10,6 +12,9 @@ import {
   Req,
   UseGuards,
   UseInterceptors,
+  UploadedFile,
+  ParseIntPipe,
+  Res,
 } from '@nestjs/common';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import {
@@ -27,8 +32,10 @@ import {
 } from './registration.guard';
 import type { RegistrationRequest } from './registration.guard';
 import { RegistrationService } from './registration.service';
+import { AllowRegistrationAccess } from './registration-request-access';
 
 @Controller('parent-registration')
+@AllowRegistrationAccess()
 @UseGuards(JwtAuthGuard, RegistrationFeatureGuard)
 @UseInterceptors(RegistrationErrorInterceptor)
 export class RegistrationController {
@@ -50,6 +57,54 @@ export class RegistrationController {
     @Body() input: SubmitDto,
   ) {
     return this.service.submit(req.user, input);
+  }
+  @Post('me/attachments/:kind')
+  @UseInterceptors(
+    FileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3 },
+    }),
+  )
+  attachment(
+    @Req() req: RegistrationRequest,
+    @Param('kind') kind: string,
+    @Body('revision', ParseIntPipe) revision: number,
+    @Body('signer') signer: 'parent1' | 'parent2' | undefined,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.upload(req.user, revision, kind, file?.buffer, signer);
+  }
+  @Post('me/pdf/retry') retry(@Req() req: RegistrationRequest) {
+    return this.service.retry(req.user);
+  }
+  @Post('admin/forms/:formId/pdf/retry') adminRetry(
+    @Req() req: RegistrationRequest,
+    @Param('formId', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    return this.service.adminRetry(req.user, id);
+  }
+  @Get('admin/forms/:formId/documents/:documentId') async document(
+    @Req() req: RegistrationRequest,
+    @Param('formId', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Param('documentId', new ParseUUIDPipe({ version: '4' }))
+    documentId: string,
+    @Res() res: Response,
+  ) {
+    const result = await this.service.document(req.user, id, documentId);
+    res
+      .set({
+        'Content-Type': result.mimeType,
+        'Content-Disposition':
+          'attachment; filename="registration-evidence.' +
+          (result.mimeType === 'application/pdf'
+            ? 'pdf'
+            : result.mimeType === 'image/jpeg'
+              ? 'jpg'
+              : 'png') +
+          '"',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      .send(result.bytes);
   }
   @Get('me/feedback') feedback(@Req() req: RegistrationRequest) {
     return this.service.feedback(req.user);
@@ -95,6 +150,7 @@ export class RegistrationController {
   }
 }
 @Controller('activity-years')
+@AllowRegistrationAccess()
 @UseGuards(JwtAuthGuard, RegistrationFeatureGuard)
 @UseInterceptors(RegistrationErrorInterceptor)
 export class ActivityYearController {

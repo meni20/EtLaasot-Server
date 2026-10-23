@@ -139,6 +139,8 @@ export default class UserRepository {
       });
       return trainees.map((user) => ({
         ...user.toJSON(),
+        id: user.id,
+        branchId: user.branchId,
         userRoles: rolesByUser.get(user.id) ?? [],
       }));
     }
@@ -158,9 +160,13 @@ export default class UserRepository {
     });
   }
 
-  public async findByNationalIdHash(nationalIdHash: string) {
+  public async findByNationalIdHash(
+    nationalIdHash: string,
+    transaction?: Transaction,
+  ) {
     return await User.findOne({
       where: { nationalIdHash },
+      ...(transaction ? { transaction } : {}),
     });
   }
 

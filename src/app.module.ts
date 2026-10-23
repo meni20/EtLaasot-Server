@@ -19,6 +19,7 @@ import { TraineeDocumentModule } from './modules/trainee-document/trainee-docume
 import { PwaInstallationModule } from './modules/pwa-installation/pwa-installation.module';
 import { PushNotificationModule } from './modules/push-notification/push-notification.module';
 import { registrationFeatureModules } from './modules/parent-registration/parent-registration.module';
+import { admissionFeatureModules } from './modules/parent-admission/admission.module';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -93,6 +94,43 @@ const getDbDialectOptions = () => {
       autoLoadModels: true,
       synchronize: getBooleanEnv('DB_SYNC', false),
       sync: { alter: false },
+      hooks: {
+        afterConnect: async (connection: unknown) => {
+          if (!getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false))
+            return;
+          // Attest every new local integration pool connection before ORM or
+          // authentication writes; deployed defaults do not enable this mode.
+          const client = connection as {
+            query(sql: string): Promise<{ rows: Array<{ ok: boolean }> }>;
+            connection: { stream: { encrypted: boolean; authorized: boolean } };
+          };
+          if (
+            process.env.SUPABASE_URL !==
+              'https://vlysppqfozfiwcmsyban.supabase.co' ||
+            process.env.DB_USER !== 'etlaasot_app.vlysppqfozfiwcmsyban' ||
+            !client.connection.stream.encrypted ||
+            !client.connection.stream.authorized
+          ) {
+            throw new Error(
+              'Local integration database identity or TLS verification failed',
+            );
+          }
+          await client.query('BEGIN READ ONLY');
+          try {
+            const result = await client.query(
+              "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_addr()='2a05:d014:8ef:5902:b67d:7199:8fac:e6d0'::inet AND inet_server_port()=5432 AS ok",
+            );
+            if (result.rows[0]?.ok !== true)
+              throw new Error(
+                'Local integration database identity verification failed',
+              );
+            await client.query('COMMIT');
+          } catch (error) {
+            await client.query('ROLLBACK');
+            throw error;
+          }
+        },
+      },
     }),
 
     SequelizeModule.forFeature([Role]),
@@ -115,6 +153,7 @@ const getDbDialectOptions = () => {
     PushNotificationModule,
     // No models/routes or schema sync for this feature until explicitly enabled.
     ...registrationFeatureModules(),
+    ...admissionFeatureModules(),
   ],
   controllers: [AppController],
   providers: [AppService],
