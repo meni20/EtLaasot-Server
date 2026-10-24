@@ -121,6 +121,32 @@ export class RegistrationIntegrationService {
     );
     if (!identity?.ok) this.fail();
   }
+  async attestDocuments() {
+    await this.attest();
+    const documentsUrl = getRequiredEnv('REGISTRATION_DOCUMENTS_URL');
+    const key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
+    if (
+      !isAllowedDocumentsBaseUrl(documentsUrl) ||
+      !/^[a-f0-9]{64}$/.test(key)
+    )
+      this.fail();
+    const response = await fetch(
+      new URL('/internal/documents/render', documentsUrl),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Api-Key': key,
+        },
+        body: '{}',
+        signal: AbortSignal.timeout(10_000),
+        redirect: 'error',
+      },
+    ).catch(() => null);
+    // An authenticated empty request must reach Documents validation. A wrong
+    // key returns 401, while network/configuration failures do not return 400.
+    if (response?.status !== 400) this.fail();
+  }
   private async bucket(t?: Transaction) {
     await this.attest(t);
     this.client ??= createClient(

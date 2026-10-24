@@ -93,6 +93,30 @@ describe('Phase 5 private integration safety (offline)', () => {
     await expect(service.attest()).rejects.toThrow();
     expect(db.query).toHaveBeenCalledTimes(1);
   });
+  it('attests the private Documents network and shared key without rendering data', async () => {
+    process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED = 'true';
+    process.env.NODE_ENV = 'development';
+    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
+    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    process.env.DB_SYNC = 'false';
+    process.env.DB_LOGGING = 'false';
+    process.env.REGISTRATION_DOCUMENTS_URL = 'http://127.0.0.1:3285/';
+    process.env.REGISTRATION_DOCUMENTS_API_KEY = '0123456789abcdef'.repeat(4);
+    delete process.env.RAILWAY_ENVIRONMENT_ID;
+    const db = { query: jest.fn().mockResolvedValue([{ ok: true }]) };
+    const fetchSpy = jest
+      .spyOn(global, 'fetch')
+      .mockResolvedValue(new Response(null, { status: 400 }));
+    const service = new RegistrationIntegrationService(db as never);
+    await expect(service.attestDocuments()).resolves.toBeUndefined();
+    expect(fetchSpy).toHaveBeenCalledWith(
+      new URL('http://127.0.0.1:3285/internal/documents/render'),
+      expect.objectContaining({ method: 'POST', body: '{}' }),
+    );
+    fetchSpy.mockResolvedValueOnce(new Response(null, { status: 401 }));
+    await expect(service.attestDocuments()).rejects.toThrow();
+    fetchSpy.mockRestore();
+  });
   it('rejects empty and oversized files before decoding or storing bytes', async () => {
     const s = new RegistrationIntegrationService({} as never);
     await expect(

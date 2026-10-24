@@ -28,7 +28,7 @@ async function bootstrap() {
   });
 
   if (getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false))
-    await app.get(RegistrationIntegrationService).attest();
+    await app.get(RegistrationIntegrationService).attestDocuments();
 
   app.enableCors({
     origin: parseCorsOrigins(),
