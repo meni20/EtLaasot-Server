@@ -54,6 +54,10 @@ export interface EvidenceRecord {
 }
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const MAX = 10 * 1024 * 1024;
+const SUPABASE_DEV_REF = 'vlysppqfozfiwcmsyban';
+const SUPABASE_DEV_URL = `https://${SUPABASE_DEV_REF}.supabase.co`;
+const SUPABASE_DEV_DB_HOST = 'aws-0-eu-central-1.pooler.supabase.com';
+const SUPABASE_DEV_DB_USER = `etlaasot_app.${SUPABASE_DEV_REF}`;
 const RAILWAY_DEV_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
 const RAILWAY_DEV_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
 const RAILWAY_DOCUMENTS_HOST = 'etlaasot-documents.railway.internal';
@@ -89,6 +93,34 @@ export const isAllowedDocumentsBaseUrl = (value: string) => {
   );
 };
 
+export const isExpectedDevServiceRoleKey = (value: string | undefined) => {
+  if (!value) return false;
+  try {
+    const parts = value.split('.');
+    if (parts.length !== 3) return false;
+    const claims = JSON.parse(
+      Buffer.from(parts[1], 'base64url').toString('utf8'),
+    ) as { ref?: unknown; role?: unknown; exp?: unknown };
+    return (
+      claims.ref === SUPABASE_DEV_REF &&
+      claims.role === 'service_role' &&
+      typeof claims.exp === 'number' &&
+      claims.exp * 1000 > Date.now()
+    );
+  } catch {
+    return false;
+  }
+};
+
+const hasExpectedDevConfiguration = () =>
+  process.env.SUPABASE_URL === SUPABASE_DEV_URL &&
+  process.env.DB_HOST === SUPABASE_DEV_DB_HOST &&
+  process.env.DB_PORT === '5432' &&
+  process.env.DB_NAME === 'postgres' &&
+  process.env.DB_USER === SUPABASE_DEV_DB_USER &&
+  process.env.DB_SSL === 'true' &&
+  isExpectedDevServiceRoleKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
+
 @Injectable()
 export class RegistrationIntegrationService {
   private client?: SupabaseClient;
@@ -109,14 +141,20 @@ export class RegistrationIntegrationService {
     if (
       !this.enabled() ||
       (!localDevelopment && !isVerifiedRailwayDevRuntime()) ||
-      process.env.SUPABASE_URL !== 'https://vlysppqfozfiwcmsyban.supabase.co' ||
-      process.env.DB_USER !== 'etlaasot_app.vlysppqfozfiwcmsyban' ||
+      !hasExpectedDevConfiguration() ||
       getBooleanEnv('DB_SYNC', false) ||
       getBooleanEnv('DB_LOGGING', false)
     )
       this.fail();
     const [identity] = await this.db.query<{ ok: boolean }>(
-      "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_addr()='2a05:d014:8ef:5902:b67d:7199:8fac:e6d0'::inet AND inet_server_port()=5432 AS ok",
+      `SELECT current_database()='postgres'
+          AND current_user='etlaasot_app'
+          AND inet_server_port()=5432
+          AND to_regclass('public.registration_forms') IS NOT NULL
+          AND to_regclass('public.registration_form_documents') IS NOT NULL
+          AND to_regclass('public.trainee_applications') IS NOT NULL
+          AND to_regclass('public.trainee_application_evidence') IS NOT NULL
+          AS ok`,
       { type: QueryTypes.SELECT, transaction: t, logging: false },
     );
     if (!identity?.ok) this.fail();

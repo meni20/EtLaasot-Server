@@ -1,6 +1,7 @@
 import {
   RegistrationIntegrationService,
   isAllowedDocumentsBaseUrl,
+  isExpectedDevServiceRoleKey,
   isVerifiedRailwayDevRuntime,
   submittedEvidence,
   safeRenderFields,
@@ -9,6 +10,27 @@ import { registrationRenderRequest } from './registration-render.contract';
 import { fictionalRegistration } from './registration.test-fixtures';
 describe('Phase 5 private integration safety (offline)', () => {
   const original = { ...process.env };
+  const serviceRoleKey = [
+    'header',
+    Buffer.from(
+      JSON.stringify({
+        ref: 'vlysppqfozfiwcmsyban',
+        role: 'service_role',
+        exp: 4_102_444_800,
+      }),
+    ).toString('base64url'),
+    'signature',
+  ].join('.');
+  const setDevDatabaseEnv = () => {
+    process.env.SUPABASE_URL =
+      'https://vlysppqfozfiwcmsyban.supabase.co';
+    process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
+    process.env.DB_HOST = 'aws-0-eu-central-1.pooler.supabase.com';
+    process.env.DB_PORT = '5432';
+    process.env.DB_NAME = 'postgres';
+    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    process.env.DB_SSL = 'true';
+  };
   it('records safe Documents field paths without echoing provider bodies or values', () => {
     expect(
       safeRenderFields([
@@ -39,8 +61,7 @@ describe('Phase 5 private integration safety (offline)', () => {
   it('accepts the verified DEV runtime without a fictional branch allowlist', async () => {
     process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED = 'true';
     process.env.NODE_ENV = 'development';
-    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
-    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    setDevDatabaseEnv();
     process.env.DB_SYNC = 'false';
     process.env.DB_LOGGING = 'false';
     delete process.env.RAILWAY_ENVIRONMENT_ID;
@@ -64,8 +85,7 @@ describe('Phase 5 private integration safety (offline)', () => {
     process.env.RAILWAY_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
     process.env.RAILWAY_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
     process.env.RAILWAY_ENVIRONMENT_NAME = 'dev';
-    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
-    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    setDevDatabaseEnv();
     process.env.DB_SYNC = 'false';
     process.env.DB_LOGGING = 'false';
     const db = { query: jest.fn().mockResolvedValue([{ ok: true }]) };
@@ -83,6 +103,11 @@ describe('Phase 5 private integration safety (offline)', () => {
       isAllowedDocumentsBaseUrl('http://other-service.railway.internal:3000/'),
     ).toBe(false);
     await expect(service.attest()).resolves.toBeUndefined();
+    process.env.DB_HOST = 'production.example.invalid';
+    await expect(service.attest()).rejects.toThrow();
+    process.env.DB_HOST = 'aws-0-eu-central-1.pooler.supabase.com';
+    expect(isExpectedDevServiceRoleKey(serviceRoleKey)).toBe(true);
+    expect(isExpectedDevServiceRoleKey('invalid')).toBe(false);
     process.env.RAILWAY_ENVIRONMENT_ID = 'production-environment';
     expect(isVerifiedRailwayDevRuntime()).toBe(false);
     expect(
@@ -96,8 +121,7 @@ describe('Phase 5 private integration safety (offline)', () => {
   it('attests the private Documents network and shared key without rendering data', async () => {
     process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED = 'true';
     process.env.NODE_ENV = 'development';
-    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
-    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    setDevDatabaseEnv();
     process.env.DB_SYNC = 'false';
     process.env.DB_LOGGING = 'false';
     process.env.REGISTRATION_DOCUMENTS_URL = 'http://127.0.0.1:3285/';
