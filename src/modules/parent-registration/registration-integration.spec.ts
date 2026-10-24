@@ -1,5 +1,7 @@
 import {
   RegistrationIntegrationService,
+  isAllowedDocumentsBaseUrl,
+  isVerifiedRailwayDevRuntime,
   submittedEvidence,
   safeRenderFields,
 } from './registration-integration.service';
@@ -53,6 +55,42 @@ describe('Phase 5 private integration safety (offline)', () => {
     process.env.NODE_ENV = 'development';
     process.env.SUPABASE_URL = 'https://tmlnuqrwhdeplpeuuvwv.supabase.co';
     await expect(s.attest()).rejects.toThrow();
+    expect(db.query).toHaveBeenCalledTimes(1);
+  });
+  it('accepts only the exact Railway DEV identity and private Documents endpoint', async () => {
+    process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED = 'true';
+    process.env.NODE_ENV = 'development';
+    process.env.BRANCH_NAME = 'dev';
+    process.env.RAILWAY_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
+    process.env.RAILWAY_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
+    process.env.RAILWAY_ENVIRONMENT_NAME = 'dev';
+    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
+    process.env.DB_USER = 'etlaasot_app.vlysppqfozfiwcmsyban';
+    process.env.DB_SYNC = 'false';
+    process.env.DB_LOGGING = 'false';
+    const db = { query: jest.fn().mockResolvedValue([{ ok: true }]) };
+    const service = new RegistrationIntegrationService(db as never);
+    expect(isVerifiedRailwayDevRuntime()).toBe(true);
+    expect(
+      isAllowedDocumentsBaseUrl(
+        'http://etlaasot-documents.railway.internal:3000/',
+      ),
+    ).toBe(true);
+    expect(
+      isAllowedDocumentsBaseUrl('https://etlaasot-documents.railway.internal/'),
+    ).toBe(false);
+    expect(
+      isAllowedDocumentsBaseUrl('http://other-service.railway.internal:3000/'),
+    ).toBe(false);
+    await expect(service.attest()).resolves.toBeUndefined();
+    process.env.RAILWAY_ENVIRONMENT_ID = 'production-environment';
+    expect(isVerifiedRailwayDevRuntime()).toBe(false);
+    expect(
+      isAllowedDocumentsBaseUrl(
+        'http://etlaasot-documents.railway.internal:3000/',
+      ),
+    ).toBe(false);
+    await expect(service.attest()).rejects.toThrow();
     expect(db.query).toHaveBeenCalledTimes(1);
   });
   it('rejects empty and oversized files before decoding or storing bytes', async () => {

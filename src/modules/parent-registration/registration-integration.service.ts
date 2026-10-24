@@ -54,6 +54,41 @@ export interface EvidenceRecord {
 }
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const MAX = 10 * 1024 * 1024;
+const RAILWAY_DEV_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
+const RAILWAY_DEV_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
+const RAILWAY_DOCUMENTS_HOST = 'etlaasot-documents.railway.internal';
+
+export const isVerifiedRailwayDevRuntime = () =>
+  process.env.NODE_ENV === 'development' &&
+  process.env.BRANCH_NAME === 'dev' &&
+  process.env.RAILWAY_PROJECT_ID === RAILWAY_DEV_PROJECT_ID &&
+  process.env.RAILWAY_ENVIRONMENT_ID === RAILWAY_DEV_ENVIRONMENT_ID &&
+  process.env.RAILWAY_ENVIRONMENT_NAME === 'dev';
+
+export const isAllowedDocumentsBaseUrl = (value: string) => {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    return false;
+  }
+  if (
+    url.protocol !== 'http:' ||
+    url.username ||
+    url.password ||
+    url.pathname !== '/' ||
+    url.search ||
+    url.hash
+  )
+    return false;
+  if (['127.0.0.1', 'localhost'].includes(url.hostname)) return true;
+  return (
+    isVerifiedRailwayDevRuntime() &&
+    url.hostname === RAILWAY_DOCUMENTS_HOST &&
+    url.port === '3000'
+  );
+};
+
 @Injectable()
 export class RegistrationIntegrationService {
   private client?: SupabaseClient;
@@ -68,10 +103,12 @@ export class RegistrationIntegrationService {
     );
   }
   async attest(t?: Transaction) {
+    const localDevelopment =
+      process.env.NODE_ENV === 'development' &&
+      !process.env.RAILWAY_ENVIRONMENT_ID;
     if (
       !this.enabled() ||
-      process.env.NODE_ENV === 'production' ||
-      process.env.RAILWAY_ENVIRONMENT_ID ||
+      (!localDevelopment && !isVerifiedRailwayDevRuntime()) ||
       process.env.SUPABASE_URL !== 'https://vlysppqfozfiwcmsyban.supabase.co' ||
       process.env.DB_USER !== 'etlaasot_app.vlysppqfozfiwcmsyban' ||
       getBooleanEnv('DB_SYNC', false) ||
@@ -402,15 +439,9 @@ export class RegistrationIntegrationService {
             transaction: t,
           },
         );
-        const url = new URL(getRequiredEnv('REGISTRATION_DOCUMENTS_URL'));
-        if (
-          !['127.0.0.1', 'localhost'].includes(url.hostname) ||
-          url.protocol !== 'http:' ||
-          url.username ||
-          url.password ||
-          url.pathname !== '/'
-        )
-          this.fail();
+        const documentsUrl = getRequiredEnv('REGISTRATION_DOCUMENTS_URL');
+        if (!isAllowedDocumentsBaseUrl(documentsUrl)) this.fail();
+        const url = new URL(documentsUrl);
         const key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
         if (!/^[a-f0-9]{64}$/.test(key)) this.fail();
         const payload = registrationRenderRequest(

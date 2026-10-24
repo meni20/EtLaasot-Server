@@ -72,7 +72,7 @@ async function bootstrap() {
   const bindHost = getBooleanEnv(
     'PARENT_REGISTRATION_INTEGRATION_ENABLED',
     false,
-  )
+  ) && !process.env.RAILWAY_ENVIRONMENT_ID
     ? '127.0.0.1'
     : '0.0.0.0';
   await app.listen(port, bindHost);
