@@ -192,12 +192,18 @@ export class RegistrationIntegrationService {
   }
   private async bucket(t?: Transaction) {
     await this.attest(t);
-    this.client ??= createClient(
-      getRequiredEnv('SUPABASE_URL'),
-      getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
-      { auth: { persistSession: false, autoRefreshToken: false } },
-    );
-    const name = getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
+    let name: string;
+    try {
+      this.client ??= createClient(
+        getRequiredEnv('SUPABASE_URL'),
+        getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
+        { auth: { persistSession: false, autoRefreshToken: false } },
+      );
+      name = getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
+    } catch (error) {
+      if (error instanceof HttpException) throw error;
+      return this.fail('storage-client');
+    }
     if (name !== 'trainee-documents') this.fail('storage-bucket-name');
     const bucketResult = await this.client.storage
       .getBucket(name)
