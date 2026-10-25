@@ -10,6 +10,8 @@ import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { QueryTypes, Transaction } from 'sequelize';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
+import WebSocket from 'ws';
 import { createHash, randomUUID } from 'crypto';
 import { isUUID } from 'class-validator';
 import { getBooleanEnv, getRequiredEnv } from '../../config/env.util';
@@ -62,6 +64,10 @@ const SUPABASE_DEV_DB_USER = `etlaasot_app.${SUPABASE_DEV_REF}`;
 const RAILWAY_DEV_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
 const RAILWAY_DEV_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
 const RAILWAY_DOCUMENTS_HOST = 'etlaasot-documents.railway.internal';
+// @types/ws includes a server-side `new WebSocket(null)` overload which makes
+// its otherwise-compatible client constructor fail structural assignment.
+const NODE_WEBSOCKET_TRANSPORT =
+  WebSocket as unknown as WebSocketLikeConstructor;
 
 export const isVerifiedRailwayDevRuntime = () =>
   process.env.NODE_ENV === 'development' &&
@@ -213,7 +219,10 @@ export class RegistrationIntegrationService {
       this.client ??= createClient(
         getRequiredEnv('SUPABASE_URL'),
         getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
-        { auth: { persistSession: false, autoRefreshToken: false } },
+        {
+          auth: { persistSession: false, autoRefreshToken: false },
+          realtime: { transport: NODE_WEBSOCKET_TRANSPORT },
+        },
       );
     } catch (error) {
       if (error instanceof HttpException) throw error;
