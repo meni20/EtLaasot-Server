@@ -129,7 +129,8 @@ export class RegistrationIntegrationService {
   enabled() {
     return getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false);
   }
-  private fail(): never {
+  private fail(stage: string): never {
+    this.logger.warn(`Private registration integration unavailable: ${stage}`);
     throw new ServiceUnavailableException(
       'Private registration integration is unavailable',
     );
@@ -145,7 +146,7 @@ export class RegistrationIntegrationService {
       getBooleanEnv('DB_SYNC', false) ||
       getBooleanEnv('DB_LOGGING', false)
     )
-      this.fail();
+      this.fail('attestation-configuration');
     const [identity] = await this.db.query<{ ok: boolean }>(
       `SELECT current_database()='postgres'
           AND current_user='etlaasot_app'
@@ -157,7 +158,7 @@ export class RegistrationIntegrationService {
           AS ok`,
       { type: QueryTypes.SELECT, transaction: t, logging: false },
     );
-    if (!identity?.ok) this.fail();
+    if (!identity?.ok) this.fail('attestation-database');
   }
   async attestDocuments() {
     await this.attest();
@@ -167,7 +168,7 @@ export class RegistrationIntegrationService {
       !isAllowedDocumentsBaseUrl(documentsUrl) ||
       !/^[a-f0-9]{64}$/.test(key)
     )
-      this.fail();
+      this.fail('documents-configuration');
     const response = await fetch(
       new URL('/internal/documents/render', documentsUrl),
       {
@@ -183,7 +184,7 @@ export class RegistrationIntegrationService {
     ).catch(() => null);
     // An authenticated empty request must reach Documents validation. A wrong
     // key returns 401, while network/configuration failures do not return 400.
-    if (response?.status !== 400) this.fail();
+    if (response?.status !== 400) this.fail('documents-connectivity');
   }
   private async bucket(t?: Transaction) {
     await this.attest(t);
@@ -193,14 +194,14 @@ export class RegistrationIntegrationService {
       { auth: { persistSession: false, autoRefreshToken: false } },
     );
     const name = getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
-    if (name !== 'trainee-documents') this.fail();
+    if (name !== 'trainee-documents') this.fail('storage-bucket-name');
     const { data, error } = await this.client.storage.getBucket(name);
     if (
       error ||
       data?.public !== false ||
       !data.allowed_mime_types?.includes('application/pdf')
     )
-      this.fail();
+      this.fail('storage-bucket-metadata');
     return { name, store: this.client.storage.from(name) };
   }
   async inspect(bytes: Buffer, kind: Kind) {
@@ -263,7 +264,7 @@ export class RegistrationIntegrationService {
       (scope && parts[1] !== scope) ||
       (ownerId && parts[2] !== ownerId)
     )
-      this.fail();
+      this.fail('storage-path');
   }
   async download(
     doc: EvidenceRecord,
@@ -274,7 +275,7 @@ export class RegistrationIntegrationService {
     this.assertPath(doc, scope, ownerId);
     const { store } = await this.bucket(t);
     const { data, error } = await store.download(doc.storagePath);
-    if (error || !data || data.size > MAX) this.fail();
+    if (error || !data || data.size > MAX) this.fail('storage-download');
     const bytes = Buffer.from(await data.arrayBuffer());
     const info = await this.inspect(bytes, doc.kind as Kind);
     if (
@@ -282,7 +283,7 @@ export class RegistrationIntegrationService {
       sha(bytes) !== doc.checksum ||
       info.mimeType !== doc.mimeType
     )
-      this.fail();
+      this.fail('storage-integrity');
     return bytes;
   }
   async verify(objects: EvidenceRecord[]) {
@@ -365,7 +366,7 @@ export class RegistrationIntegrationService {
       upsert: false,
       cacheControl: '0',
     });
-    if (error) this.fail();
+    if (error) this.fail('storage-upload');
     const values = {
       id: docId,
       kind,
@@ -504,10 +505,12 @@ export class RegistrationIntegrationService {
           },
         );
         const documentsUrl = getRequiredEnv('REGISTRATION_DOCUMENTS_URL');
-        if (!isAllowedDocumentsBaseUrl(documentsUrl)) this.fail();
+        if (!isAllowedDocumentsBaseUrl(documentsUrl))
+          this.fail('documents-configuration');
         const url = new URL(documentsUrl);
         const key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
-        if (!/^[a-f0-9]{64}$/.test(key)) this.fail();
+        if (!/^[a-f0-9]{64}$/.test(key))
+          this.fail('documents-authentication');
         const payload = registrationRenderRequest(
           data,
           {
@@ -543,7 +546,7 @@ export class RegistrationIntegrationService {
             // response body, phone, identity, signature, key or provider error.
             invalidFields = safeRenderFields(detail?.fields);
           }
-          this.fail();
+          this.fail('storage-upload-verification');
         }
         stage = 'PDF_VALIDATION';
         const bytes = Buffer.from(await response.arrayBuffer());
@@ -559,7 +562,7 @@ export class RegistrationIntegrationService {
         let stored = bytes;
         if (uploaded.error) {
           const retry = await store.download(path);
-          if (retry.error || !retry.data) this.fail();
+          if (retry.error || !retry.data) this.fail('storage-download-retry');
           stored = Buffer.from(await retry.data.arrayBuffer());
           await this.inspect(stored, 'REGISTRATION_PDF');
         }
@@ -665,7 +668,7 @@ export class RegistrationIntegrationService {
         }
       });
       if (error instanceof ConflictException) throw error;
-      this.fail();
+      this.fail('render-lock');
     }
   }
 }
