@@ -195,7 +195,10 @@ export class RegistrationIntegrationService {
     );
     const name = getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
     if (name !== 'trainee-documents') this.fail('storage-bucket-name');
-    const { data, error } = await this.client.storage.getBucket(name);
+    const bucketResult = await this.client.storage
+      .getBucket(name)
+      .catch(() => this.fail('storage-bucket-request'));
+    const { data, error } = bucketResult;
     if (
       error ||
       data?.public !== false ||
@@ -274,7 +277,10 @@ export class RegistrationIntegrationService {
   ) {
     this.assertPath(doc, scope, ownerId);
     const { store } = await this.bucket(t);
-    const { data, error } = await store.download(doc.storagePath);
+    const downloadResult = await store
+      .download(doc.storagePath)
+      .catch(() => this.fail('storage-download-request'));
+    const { data, error } = downloadResult;
     if (error || !data || data.size > MAX) this.fail('storage-download');
     const bytes = Buffer.from(await data.arrayBuffer());
     const info = await this.inspect(bytes, doc.kind as Kind);
