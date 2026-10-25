@@ -5,6 +5,7 @@ import {
   ForbiddenException,
   HttpException,
   Injectable,
+  Logger,
   NestInterceptor,
   NotFoundException,
   ServiceUnavailableException,
@@ -50,19 +51,40 @@ export class RegistrationFeatureGuard implements CanActivate {
 // a safe HTTP exception before Nest's default exception logger can serialize them.
 @Injectable()
 export class RegistrationErrorInterceptor implements NestInterceptor {
+  private readonly logger = new Logger(RegistrationErrorInterceptor.name);
+
   intercept(_context: ExecutionContext, next: CallHandler) {
     return next
       .handle()
       .pipe(
-        catchError((error) =>
-          throwError(() =>
+        catchError((error) => {
+          if (!(error instanceof HttpException)) {
+            const candidate = error as {
+              name?: unknown;
+              code?: unknown;
+              parent?: { code?: unknown };
+              cause?: { code?: unknown };
+            };
+            const name =
+              typeof candidate?.name === 'string'
+                ? candidate.name.replace(/[^A-Za-z]/g, '').slice(0, 40)
+                : 'UnknownError';
+            const rawCode =
+              candidate?.code ?? candidate?.parent?.code ?? candidate?.cause?.code;
+            const code =
+              typeof rawCode === 'string' && /^[A-Z0-9_]{2,20}$/.test(rawCode)
+                ? `:${rawCode}`
+                : '';
+            this.logger.warn(`Unexpected registration failure: ${name}${code}`);
+          }
+          return throwError(() =>
             error instanceof HttpException
               ? error
               : new ServiceUnavailableException(
                   'Registration operation failed; retry safely',
                 ),
-          ),
-        ),
+          );
+        }),
       );
   }
 }
