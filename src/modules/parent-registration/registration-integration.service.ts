@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  HttpException,
   Injectable,
   Logger,
   ServiceUnavailableException,
@@ -147,8 +148,9 @@ export class RegistrationIntegrationService {
       getBooleanEnv('DB_LOGGING', false)
     )
       this.fail('attestation-configuration');
-    const [identity] = await this.db.query<{ ok: boolean }>(
-      `SELECT current_database()='postgres'
+    const identityRows = await this.db
+      .query<{ ok: boolean }>(
+        `SELECT current_database()='postgres'
           AND current_user='etlaasot_app'
           AND inet_server_port()=5432
           AND to_regclass('public.registration_forms') IS NOT NULL
@@ -156,8 +158,10 @@ export class RegistrationIntegrationService {
           AND to_regclass('public.trainee_applications') IS NOT NULL
           AND to_regclass('public.trainee_application_evidence') IS NOT NULL
           AS ok`,
-      { type: QueryTypes.SELECT, transaction: t, logging: false },
-    );
+        { type: QueryTypes.SELECT, transaction: t, logging: false },
+      )
+      .catch(() => this.fail('attestation-query'));
+    const [identity] = identityRows;
     if (!identity?.ok) this.fail('attestation-database');
   }
   async attestDocuments() {
@@ -282,8 +286,14 @@ export class RegistrationIntegrationService {
       .catch(() => this.fail('storage-download-request'));
     const { data, error } = downloadResult;
     if (error || !data || data.size > MAX) this.fail('storage-download');
-    const bytes = Buffer.from(await data.arrayBuffer());
-    const info = await this.inspect(bytes, doc.kind as Kind);
+    const bytes = await data
+      .arrayBuffer()
+      .then((value) => Buffer.from(value))
+      .catch(() => this.fail('storage-response-body'));
+    const info = await this.inspect(bytes, doc.kind as Kind).catch((error) => {
+      if (error instanceof HttpException) throw error;
+      return this.fail('storage-inspection');
+    });
     if (
       bytes.length !== doc.fileSize ||
       sha(bytes) !== doc.checksum ||
