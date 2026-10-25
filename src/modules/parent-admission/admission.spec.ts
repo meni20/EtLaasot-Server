@@ -99,6 +99,7 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
       application: jest.fn(async () => app),
       versions: jest.fn(async () => versions),
       evidence: jest.fn(async () => docs),
+      events: jest.fn(async () => []),
       event: jest.fn(async () => {}),
       version: jest.fn(async (values) => {
         const v = { id: randomUUID(), ...values };
@@ -173,7 +174,13 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
       ],
     });
     expect(result.rows[0]).not.toHaveProperty('draftData');
-    expect(repo.list).toHaveBeenCalledWith(['branch-a'], 1);
+    expect(repo.list).toHaveBeenCalledWith(
+      ['branch-a'],
+      1,
+      'TRAINEE',
+      undefined,
+      undefined,
+    );
   });
   function submitted(two = true) {
     const data = fictionalRegistration(two),
@@ -392,7 +399,7 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
     app.branchId = 'branch-b';
     await expect(service.detail(actor, app.id)).rejects.toThrow();
     await expect(
-      service.review(actor, app.id, 'REJECTED', 'reason'),
+      service.review(actor, app.id, 'REJECTED', 'reason', randomUUID()),
     ).rejects.toThrow();
     await expect(
       service.approve(actor, app.id, randomUUID(), true),
@@ -410,6 +417,7 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
         app.id,
         action,
         '  fictional reason  ',
+        version.id,
       );
       expect(result.status).toBe(action);
       expect(app.feedbackReason).toBe('fictional reason');
@@ -498,5 +506,60 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
     await expect(limiter.consume('identify', 'fictional-peer')).rejects.toThrow(
       'abuse controls are unavailable',
     );
+  });
+  it('keeps old starts and records compatible with the TRAINEE policy', async () => {
+    const old = await service.me(token);
+    expect(old.application.registrationType).toBe('TRAINEE');
+    expect(old.declarations).toEqual(DECLARATIONS);
+    await service.start('123456782', 'branch-a');
+    expect(repo.create.mock.calls[0][0].registrationType).toBe('TRAINEE');
+  });
+  it.each(['false'])(
+    'never starts volunteer admission with preparation flag %s',
+    async (flag) => {
+      process.env.VOLUNTEER_REGISTRATION_ENABLED = flag;
+      await expect(
+        service.start('123456782', 'branch-a', 'VOLUNTEER'),
+      ).rejects.toThrow();
+      expect(repo.transaction).not.toHaveBeenCalled();
+      expect(repo.create).not.toHaveBeenCalled();
+    },
+  );
+  it('never sends a volunteer application through trainee lifecycle operations', async () => {
+    app.registrationType = 'VOLUNTEER';
+    process.env.VOLUNTEER_REGISTRATION_ENABLED = 'false';
+    app.status = 'PENDING_REVIEW';
+    await expect(service.me(token)).rejects.toThrow();
+    await expect(
+      service.save(token, { revision: 0, currentStep: 1, data: {} }),
+    ).rejects.toThrow();
+    await expect(
+      service.submit(token, { revision: 0, idempotencyKey: randomUUID() }),
+    ).rejects.toThrow();
+    await expect(
+      service.upload(token, 0, 'POLICE_CLEARANCE', Buffer.from('fictional')),
+    ).rejects.toThrow();
+    await expect(service.retry(token)).rejects.toThrow();
+    await expect(service.adminRetry(actor, app.id)).rejects.toThrow();
+    await expect(service.detail(actor, app.id)).rejects.toThrow();
+    await expect(
+      service.review(actor, app.id, 'REJECTED', 'test', randomUUID()),
+    ).rejects.toThrow();
+    await expect(
+      service.approve(actor, app.id, randomUUID(), true),
+    ).rejects.toThrow();
+    expect(app.update).not.toHaveBeenCalled();
+    expect(users.createTraineeWithRole).not.toHaveBeenCalled();
+  });
+  it('does not let a draft request replace its persisted registration type', async () => {
+    app.registrationType = 'VOLUNTEER';
+    await expect(
+      service.save(token, {
+        revision: 0,
+        currentStep: 1,
+        data: { trainee: { nationalId: '123456782' } },
+      }),
+    ).rejects.toThrow();
+    expect(app.update).not.toHaveBeenCalled();
   });
 });

@@ -1,4 +1,29 @@
 import {
+  volunteerRenderRequest,
+  VOLUNTEER_TEMPLATE_VERSION,
+} from '../parent-admission/volunteer-render.contract';
+import {
+  VOLUNTEER_DECLARATIONS,
+  VOLUNTEER_SOURCE_SHA256,
+} from '../parent-admission/volunteer.legal';
+import {
+  readVolunteerData,
+  volunteerContentHash,
+} from '../parent-admission/volunteer.validation';
+import { VOLUNTEER_AGREEMENT_VERSION } from '../parent-admission/volunteer.legal';
+import {
+  VOLUNTEER_PURPOSES,
+  jerusalemDate,
+  needsParent,
+  needsClearance,
+  type VolunteerData,
+  type VolunteerPurpose,
+} from '../parent-admission/volunteer.contract';
+import {
+  volunteerScopeHash,
+  validateVolunteerSubmission,
+} from '../parent-admission/volunteer.validation';
+import {
   BadRequestException,
   ConflictException,
   HttpException,
@@ -18,6 +43,7 @@ import { getBooleanEnv, getRequiredEnv } from '../../config/env.util';
 import {
   ApplicationEvidence,
   ApplicationVersion,
+  ApplicationEvent,
   TraineeApplication,
 } from '../parent-admission/admission.entities';
 import {
@@ -41,8 +67,17 @@ import {
 } from './declarations';
 
 type Scope = 'application' | 'renewal';
-type Kind = 'PHYSICIAN_SUMMARY' | 'SIGNATURE' | 'REGISTRATION_PDF';
+type Kind =
+  | 'PHYSICIAN_SUMMARY'
+  | 'SIGNATURE'
+  | 'REGISTRATION_PDF'
+  | 'POLICE_CLEARANCE';
 export interface EvidenceRecord {
+  templateVersion?: string | null;
+  sourceChecksum?: string | null;
+  generatedAt?: Date | null;
+  registrationType?: string;
+  signaturePurpose?: string | null;
   id: string;
   storageBucket: string;
   storagePath: string;
@@ -152,7 +187,10 @@ export class RegistrationIntegrationService {
       if (secret) message = message.replaceAll(secret, '[redacted]');
     }
     message = message
-      .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted-jwt]')
+      .replace(
+        /eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g,
+        '[redacted-jwt]',
+      )
       .replace(/https?:\/\/[^\s]+/g, '[redacted-url]')
       .slice(0, 240);
     const code =
@@ -191,10 +229,7 @@ export class RegistrationIntegrationService {
     await this.attest();
     const documentsUrl = getRequiredEnv('REGISTRATION_DOCUMENTS_URL');
     const key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
-    if (
-      !isAllowedDocumentsBaseUrl(documentsUrl) ||
-      !/^[a-f0-9]{64}$/.test(key)
-    )
+    if (!isAllowedDocumentsBaseUrl(documentsUrl) || !/^[a-f0-9]{64}$/.test(key))
       this.fail('documents-configuration');
     const response = await fetch(
       new URL('/internal/documents/render', documentsUrl),
@@ -300,13 +335,30 @@ export class RegistrationIntegrationService {
   private assertPath(doc: EvidenceRecord, scope?: Scope, ownerId?: string) {
     const parts = doc.storagePath.split('/');
     if (
+      doc.registrationType === 'VOLUNTEER' &&
+      doc.kind === 'REGISTRATION_PDF' &&
+      (doc.templateVersion !== VOLUNTEER_TEMPLATE_VERSION ||
+        doc.sourceChecksum !== VOLUNTEER_SOURCE_SHA256 ||
+        !doc.generatedAt ||
+        doc.contentHash !== parts[3] ||
+        !doc.versionId)
+    )
+      this.fail('volunteer-pdf-metadata');
+    if (
       doc.storageBucket !== 'trainee-documents' ||
       parts.length !== 6 ||
       parts[0] !== 'registration' ||
       !['application', 'renewal'].includes(parts[1]) ||
       !isUUID(parts[2], '4') ||
       !/^[a-f0-9]{64}$/.test(parts[3]) ||
-      !['medical', 'parent1', 'parent2', 'pdf'].includes(parts[4]) ||
+      ![
+        'medical',
+        'parent1',
+        'parent2',
+        'pdf',
+        ...VOLUNTEER_PURPOSES,
+        'police',
+      ].includes(parts[4]) ||
       !/^[-a-f0-9]{36}\.(pdf|png|jpg)$/.test(parts[5]) ||
       (scope && parts[1] !== scope) ||
       (ownerId && parts[2] !== ownerId)
@@ -454,6 +506,394 @@ export class RegistrationIntegrationService {
       signedAt: createdAt.toISOString(),
     };
   }
+  async uploadVolunteer(
+    id: string,
+    kind: 'SIGNATURE' | 'POLICE_CLEARANCE',
+    data: VolunteerData,
+    bytes: Buffer,
+    purpose: VolunteerPurpose | undefined,
+    t?: Transaction,
+  ) {
+    await this.attest(t);
+    if (!isUUID(id, '4'))
+      throw new BadRequestException('Invalid attachment owner');
+    if (kind === 'SIGNATURE') {
+      if (!purpose || !VOLUNTEER_PURPOSES.includes(purpose))
+        throw new BadRequestException('Invalid signature purpose');
+      const signer =
+        purpose === 'PARENTAL_CONSENT' ? data.parentConsent : data.volunteer;
+      if (
+        !signer?.nationalId ||
+        (purpose === 'PARENTAL_CONSENT'
+          ? !data.parentConsent?.name
+          : !data.volunteer?.firstName || !data.volunteer?.lastName)
+      )
+        throw new BadRequestException('Save signer identity before signing');
+      if (
+        purpose === 'PARENTAL_CONSENT' &&
+        (!needsParent(data) || data.parentConsent?.acknowledged !== true)
+      )
+        throw new BadRequestException(
+          'Parental consent is not applicable or acknowledged',
+        );
+      if (
+        (purpose === 'VOLUNTEER_AGREEMENT' &&
+          data.agreements?.volunteer !== true) ||
+        (purpose === 'CONFIDENTIALITY' &&
+          data.agreements?.confidentiality !== true) ||
+        data.agreements?.version !== VOLUNTEER_AGREEMENT_VERSION
+      )
+        throw new BadRequestException(
+          'Acknowledge the current agreement before signing',
+        );
+    } else if (!needsClearance(data))
+      throw new BadRequestException('Police clearance is not applicable');
+    const info = await this.inspect(bytes, kind);
+    const hash =
+      kind === 'SIGNATURE' ? volunteerScopeHash(data, purpose!) : sha(bytes);
+    const createdAt = new Date(),
+      docId = randomUUID();
+    const storagePath = `registration/application/${id}/${hash}/${kind === 'SIGNATURE' ? purpose : 'police'}/${docId}.${info.extension}`;
+    const { name, store } = await this.bucket(t);
+    const { error } = await store.upload(storagePath, bytes, {
+      contentType: info.mimeType,
+      upsert: false,
+      cacheControl: '0',
+    });
+    if (error) this.fail('volunteer-upload');
+    const doc = await ApplicationEvidence.create(
+      {
+        id: docId,
+        applicationId: id,
+        registrationType: 'VOLUNTEER',
+        signaturePurpose: kind === 'SIGNATURE' ? purpose : null,
+        kind,
+        storageBucket: name,
+        storagePath,
+        mimeType: info.mimeType,
+        fileSize: bytes.length,
+        checksum: sha(bytes),
+        contentHash: hash,
+        verifiedAt: createdAt,
+        createdAt,
+        versionId: null,
+      },
+      { transaction: t },
+    );
+    await this.download(doc, 'application', id, t);
+    return {
+      documentId: docId,
+      contentHash: hash,
+      signedAt: createdAt.toISOString(),
+      agreementVersion: VOLUNTEER_AGREEMENT_VERSION,
+      validation: 'CONTENT_ONLY',
+    };
+  }
+  async verifyVolunteerSigned(
+    id: string,
+    data: VolunteerData,
+    docs: EvidenceRecord[],
+    t?: Transaction,
+    asOf?: Date,
+  ) {
+    const today = jerusalemDate(asOf ?? new Date());
+    validateVolunteerSubmission(data, today);
+    for (const purpose of VOLUNTEER_PURPOSES) {
+      if (
+        purpose === 'PARENTAL_CONSENT' &&
+        !needsParent(data, today) &&
+        !data.signatures?.[purpose]
+      )
+        continue;
+      const s = data.signatures![purpose]!;
+      const doc = docs.find(
+        (d) =>
+          d.id === s.documentId &&
+          d.kind === 'SIGNATURE' &&
+          d.registrationType === 'VOLUNTEER' &&
+          d.signaturePurpose === purpose,
+      );
+      if (
+        !doc ||
+        !doc.verifiedAt ||
+        doc.contentHash !== volunteerScopeHash(data, purpose) ||
+        doc.storagePath.split('/')[3] !== s.contentHash ||
+        doc.storagePath.split('/')[4] !== purpose ||
+        !doc.createdAt ||
+        new Date(doc.createdAt).toISOString() !== s.signedAt
+      )
+        throw new ConflictException(
+          'Signature owner, purpose, date or covered content mismatch',
+        );
+      await this.download(doc, 'application', id, t);
+    }
+    if (needsClearance(data, today) || data.policeClearanceDocumentId) {
+      const doc = docs.find(
+        (d) =>
+          d.id === data.policeClearanceDocumentId &&
+          d.kind === 'POLICE_CLEARANCE' &&
+          d.registrationType === 'VOLUNTEER',
+      );
+      if (!doc || !doc.verifiedAt || doc.storagePath.split('/')[4] !== 'police')
+        throw new ConflictException('Private police clearance is required');
+      await this.download(doc, 'application', id, t);
+    }
+  }
+  // Snapshot and attach use short DB transactions. Rendering, evidence downloads
+  // and Storage read-back run outside row locks. A unique PDF/version index is
+  // the final arbiter across concurrent requests/processes.
+  async generateVolunteer(id: string, expectedVersionId?: string) {
+    await this.attest();
+    let versionId: string | undefined;
+    let verifyingExistingPdf = false;
+    try {
+      const snapshot = await this.db.transaction(async (t) => {
+        const app = await TraineeApplication.findByPk(id, {
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        });
+        if (!app || app.registrationType !== 'VOLUNTEER')
+          throw new ConflictException('Volunteer application not found');
+        const version = await ApplicationVersion.findOne({
+          where: {
+            applicationId: id,
+            ...(expectedVersionId ? { id: expectedVersionId } : {}),
+          },
+          order: [['versionNumber', 'DESC']],
+          transaction: t,
+        });
+        if (!version || version.registrationType !== 'VOLUNTEER')
+          throw new ConflictException('Submitted volunteer version is missing');
+        versionId = version.id;
+        const branch = await Branch.findByPk(app.branchId, { transaction: t });
+        if (!branch)
+          throw new ConflictException('Registration branch is missing');
+        return {
+          branchId: app.branchId,
+          branch: branch.name,
+          version,
+          docs: await ApplicationEvidence.findAll({
+            where: { applicationId: id },
+            transaction: t,
+          }),
+        };
+      });
+      const v = snapshot.version,
+        data = readVolunteerData(v.formData),
+        submittedAt = new Date(v.createdAt).toISOString();
+      verifyingExistingPdf = snapshot.docs.some(
+        (d) =>
+          d.kind === 'REGISTRATION_PDF' &&
+          d.versionId === v.id &&
+          d.registrationType === 'VOLUNTEER',
+      );
+      if (
+        v.contentHash !== volunteerContentHash(data) ||
+        v.declarationVersion !== VOLUNTEER_AGREEMENT_VERSION ||
+        JSON.stringify(v.declarations) !==
+          JSON.stringify(VOLUNTEER_DECLARATIONS) ||
+        ![
+          VOLUNTEER_TEMPLATE_VERSION,
+          'volunteer-registration-v1-deferred',
+        ].includes(v.templateVersion)
+      )
+        throw new ConflictException(
+          'Immutable volunteer version integrity mismatch',
+        );
+      await this.verifyVolunteerSigned(
+        id,
+        data,
+        snapshot.docs,
+        undefined,
+        new Date(submittedAt),
+      );
+      let candidate = snapshot.docs.find(
+        (d) =>
+          d.kind === 'REGISTRATION_PDF' &&
+          d.versionId === v.id &&
+          d.registrationType === 'VOLUNTEER',
+      );
+      if (candidate) await this.download(candidate, 'application', id);
+      else {
+        const images: Partial<Record<VolunteerPurpose, string>> = {};
+        for (const purpose of VOLUNTEER_PURPOSES) {
+          if (
+            purpose === 'PARENTAL_CONSENT' &&
+            !needsParent(data, jerusalemDate(new Date(submittedAt)))
+          )
+            continue;
+          const doc = snapshot.docs.find(
+            (d) => d.id === data.signatures![purpose]!.documentId,
+          )!;
+          images[purpose] =
+            'data:image/png;base64,' +
+            (await this.download(doc, 'application', id)).toString('base64');
+        }
+        const payload = volunteerRenderRequest(
+          data,
+          {
+            reference: v.id,
+            applicationId: id,
+            branch: snapshot.branch,
+            submittedAt,
+          },
+          images,
+          v.declarations,
+        );
+        const url = getRequiredEnv('REGISTRATION_DOCUMENTS_URL'),
+          key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
+        if (!isAllowedDocumentsBaseUrl(url) || !/^[a-f0-9]{64}$/.test(key))
+          this.fail('documents-configuration');
+        const response = await fetch(
+          new URL('/internal/documents/render', url),
+          {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'X-Internal-Api-Key': key,
+            },
+            body: JSON.stringify(payload),
+            redirect: 'error',
+            signal: AbortSignal.timeout(60000),
+          },
+        );
+        if (
+          !response.ok ||
+          !response.headers.get('content-type')?.startsWith('application/pdf')
+        )
+          this.fail('volunteer-render');
+        const chunks: Buffer[] = [];
+        let size = 0;
+        const reader = response.body?.getReader();
+        if (!reader) this.fail('volunteer-render-body');
+        while (true) {
+          const part = await reader.read();
+          if (part.done) break;
+          size += part.value.length;
+          if (size > MAX) {
+            await reader.cancel();
+            this.fail('volunteer-pdf-size');
+          }
+          chunks.push(Buffer.from(part.value));
+        }
+        const bytes = Buffer.concat(chunks);
+        await this.inspect(bytes, 'REGISTRATION_PDF');
+        const docId = randomUUID(),
+          now = new Date(),
+          storagePath = `registration/application/${id}/${v.contentHash}/pdf/${docId}.pdf`;
+        const { name, store } = await this.bucket();
+        const uploaded = await store.upload(storagePath, bytes, {
+          contentType: 'application/pdf',
+          upsert: false,
+          cacheControl: '0',
+        });
+        if (uploaded.error) this.fail('volunteer-pdf-upload');
+        candidate = ApplicationEvidence.build({
+          id: docId,
+          applicationId: id,
+          registrationType: 'VOLUNTEER',
+          kind: 'REGISTRATION_PDF',
+          versionId: v.id,
+          contentHash: v.contentHash,
+          storageBucket: name,
+          storagePath,
+          mimeType: 'application/pdf',
+          fileSize: bytes.length,
+          checksum: sha(bytes),
+          verifiedAt: now,
+          templateVersion: VOLUNTEER_TEMPLATE_VERSION,
+          sourceChecksum: VOLUNTEER_SOURCE_SHA256,
+          generatedAt: now,
+        });
+        await this.download(candidate, 'application', id);
+      }
+      const verified = candidate;
+      const result = await this.db.transaction(async (t) => {
+        const app = await TraineeApplication.findByPk(id, {
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        });
+        if (
+          !app ||
+          app.registrationType !== 'VOLUNTEER' ||
+          app.branchId !== snapshot.branchId
+        )
+          throw new ConflictException('Application scope changed');
+        let pdf = await ApplicationEvidence.findOne({
+          where: {
+            applicationId: id,
+            versionId: v.id,
+            kind: 'REGISTRATION_PDF',
+          },
+          transaction: t,
+        });
+        if (!pdf) {
+          pdf = await ApplicationEvidence.create(
+            verified.get({ plain: true }),
+            { transaction: t },
+          );
+          await ApplicationEvent.create(
+            {
+              applicationId: id,
+              versionId: v.id,
+              action: 'PDF_GENERATED',
+              actorUuid: null,
+            },
+            { transaction: t },
+          );
+        }
+        const latest = await ApplicationVersion.findOne({
+          where: { applicationId: id },
+          order: [['versionNumber', 'DESC']],
+          transaction: t,
+        });
+        const current = latest?.id === v.id && app.status === 'PENDING_REVIEW';
+        if (current)
+          await app.update({ documentStatus: 'READY' }, { transaction: t });
+        return {
+          status: 'READY' as const,
+          versionId: v.id,
+          current,
+          documentId: pdf.id,
+        };
+      });
+      // A race may leave an unused private object. Do not delete on an ambiguous
+      // commit; existing immutable references always take precedence over cleanup.
+      return result;
+    } catch (error) {
+      this.logger.warn('Volunteer PDF generation failed');
+      if (versionId)
+        await this.db.transaction(async (t) => {
+          const app = await TraineeApplication.findByPk(id, {
+            transaction: t,
+            lock: t.LOCK.UPDATE,
+          });
+          if (!app || app.registrationType !== 'VOLUNTEER') return;
+          const latest = await ApplicationVersion.findOne({
+            where: { applicationId: id },
+            order: [['versionNumber', 'DESC']],
+            transaction: t,
+          });
+          if (
+            latest?.id === versionId &&
+            app.status === 'PENDING_REVIEW' &&
+            (app.documentStatus !== 'READY' || verifyingExistingPdf)
+          )
+            await app.update({ documentStatus: 'FAILED' }, { transaction: t });
+          await ApplicationEvent.create(
+            {
+              applicationId: id,
+              versionId,
+              action: 'PDF_FAILED',
+              actorUuid: null,
+            },
+            { transaction: t },
+          );
+        });
+      if (error instanceof ConflictException) throw error;
+      this.fail('volunteer-pdf-generation');
+    }
+  }
   async generate(
     scope: Scope,
     id: string,
@@ -478,6 +918,13 @@ export class RegistrationIntegrationService {
                 lock: t.LOCK.UPDATE,
               });
         if (!owner) throw new ConflictException('Registration not found');
+        if (
+          scope === 'application' &&
+          (owner as TraineeApplication).registrationType === 'VOLUNTEER'
+        )
+          throw new ConflictException(
+            'Volunteer PDF generation is not implemented',
+          );
         const version =
           scope === 'application'
             ? await ApplicationVersion.findOne({
@@ -516,7 +963,7 @@ export class RegistrationIntegrationService {
           throw new ConflictException(
             'Only a submitted version can generate a PDF',
           );
-        const data = readData(version.formData);
+        const data = readData(version.formData as RegistrationData);
         if (
           version.templateVersion !== TEMPLATE_VERSION ||
           version.declarationVersion !== DECLARATION_VERSION ||
@@ -565,8 +1012,7 @@ export class RegistrationIntegrationService {
           this.fail('documents-configuration');
         const url = new URL(documentsUrl);
         const key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
-        if (!/^[a-f0-9]{64}$/.test(key))
-          this.fail('documents-authentication');
+        if (!/^[a-f0-9]{64}$/.test(key)) this.fail('documents-authentication');
         const payload = registrationRenderRequest(
           data,
           {
@@ -758,12 +1204,19 @@ export function safeRenderFields(value: unknown): string[] {
 
 export function submittedEvidence<
   T extends { id: string; versionId: string | null },
->(docs: T[], versions: { id: string; formData: RegistrationData }[]): T[] {
+>(
+  docs: T[],
+  versions: { id: string; formData: RegistrationData | VolunteerData }[],
+): T[] {
   const ids = new Set(
-    versions.flatMap((v) => [
-      v.formData.medical?.physicianSummaryDocumentId,
-      ...Object.values(v.formData.signatures ?? {}).map((s) => s.documentId),
-    ]),
+    versions.flatMap((v) => {
+      const data = v.formData as RegistrationData & VolunteerData;
+      return [
+        data.medical?.physicianSummaryDocumentId,
+        data.policeClearanceDocumentId,
+        ...Object.values(data.signatures ?? {}).map((s) => s.documentId),
+      ];
+    }),
   );
   return docs.filter(
     (d) =>

@@ -44,16 +44,19 @@ export default class UserService {
     assertNationalIdEncryptionKeyConfigured();
   }
 
-  async createUserWithRole(userData: IUser) {
+  async createUserWithRole(userData: IUser, parentTransaction?: Transaction) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
     const nationalIdDetails = getNationalIdDetails(userData.id);
-    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    await this.assertNationalIdAvailable(
+      nationalIdDetails.nationalIdHash,
+      parentTransaction,
+    );
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
     try {
-      const user = await this.sequelize.transaction(async (transaction) => {
+      const createInTransaction = async (transaction: Transaction) => {
         const user = await this.userRepository.create(
           this.normalizeCreateUserData(userData, nationalIdDetails, {
             passwordHash,
@@ -71,7 +74,10 @@ export default class UserService {
         );
 
         return user;
-      });
+      };
+      const user = parentTransaction
+        ? await createInTransaction(parentTransaction)
+        : await this.sequelize.transaction(createInTransaction);
 
       return {
         user,

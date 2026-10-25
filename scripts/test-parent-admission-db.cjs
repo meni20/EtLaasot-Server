@@ -79,6 +79,11 @@ async function main() {
     for (const name of [
       '030_parent_registration.sql',
       '031_parent_applications.sql',
+      '032_registration_medical_image_mime.sql',
+      '033_application_registration_types.sql',
+      '034_volunteer_clearance_images.sql',
+      '035_volunteer_pdf_metadata.sql',
+      '036_application_review_reasons.sql',
     ])
       await client.query(
         fs.readFileSync(path.join(root, 'migrations', name), 'utf8'),
@@ -93,7 +98,7 @@ async function main() {
     await client.query('COMMIT');
     transaction = false;
     console.log(
-      'PASS: synthetic baseline + 030 + 031 prepared only in the new attested local Phase 4 database.',
+      'PASS: synthetic baseline + 030 through 036 prepared only in the new attested local Phase 4 database.',
     );
   } finally {
     if (transaction) await client.query('ROLLBACK').catch(() => {});

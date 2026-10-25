@@ -38,8 +38,13 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
         expiresAt: new Date(),
       })),
       me: jest.fn(async () => ({ application: { id: 'fictional' }, data: {} })),
+      applicantPdf: jest.fn(async (token: string) => {
+        if (token !== 't'.repeat(43)) throw new UnauthorizedException();
+        return { bytes: Buffer.from('%PDF-fictional') };
+      }),
       save: jest.fn(async () => ({ ok: true })),
       approve: jest.fn(async () => ({ ok: true })),
+      review: jest.fn(async () => ({ ok: true })),
       list: jest.fn(async () => ({ rows: [], count: 0 })),
     };
     limits = { consume: jest.fn(async () => {}) };
@@ -86,6 +91,21 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
   afterAll(async () => {
     await app.close();
     process.env = original;
+  });
+  it('serves applicant PDFs only with an applicant credential and prevents caching', async () => {
+    await request(app.getHttpServer())
+      .get('/parent-applications/me/pdf')
+      .expect(401);
+    expect(service.applicantPdf).toHaveBeenCalledWith('');
+    const result = await request(app.getHttpServer())
+      .get('/parent-applications/me/pdf')
+      .set('X-Applicant-Session', 't'.repeat(43))
+      .expect(200);
+    expect(service.applicantPdf).toHaveBeenCalledWith('t'.repeat(43));
+    expect(result.headers['content-type']).toContain('application/pdf');
+    expect(result.headers['cache-control']).toContain('no-store');
+    expect(result.headers['x-content-type-options']).toBe('nosniff');
+    expect(result.headers['content-disposition']).toContain('attachment');
   });
   it('ID-first initiation returns no account data and prevents response caching', async () => {
     const result = await request(app.getHttpServer())
@@ -191,10 +211,120 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
       expect.anything(),
       'branch-test',
       1,
+      'TRAINEE',
+      undefined,
+      undefined,
     );
     await request(app.getHttpServer())
       .get('/parent-applications/admin?page=invalid')
       .set('Authorization', 'Bearer fictional-admin')
       .expect(400);
+  });
+  it('defaults old start requests to TRAINEE and validates the explicit type', async () => {
+    await request(app.getHttpServer())
+      .post('/parent-applications/start')
+      .set('Origin', origin)
+      .send({ identifier: '123456782', branchId: 'branch-test' })
+      .expect(201);
+    expect(service.start).toHaveBeenCalledWith(
+      '123456782',
+      'branch-test',
+      'TRAINEE',
+    );
+    await request(app.getHttpServer())
+      .post('/parent-applications/start')
+      .set('Origin', origin)
+      .send({
+        identifier: '123456782',
+        branchId: 'branch-test',
+        registrationType: 'VOLUNTEER',
+      })
+      .expect(201);
+    expect(service.start).toHaveBeenLastCalledWith(
+      '123456782',
+      'branch-test',
+      'VOLUNTEER',
+    );
+    for (const registrationType of ['ADMIN', null, 1]) {
+      await request(app.getHttpServer())
+        .post('/parent-applications/start')
+        .set('Origin', origin)
+        .send({
+          identifier: '123456782',
+          branchId: 'branch-test',
+          registrationType,
+        })
+        .expect(400);
+    }
+  });
+  it('passes validated type, status and search filters to the branch-scoped service', async () => {
+    await request(app.getHttpServer())
+      .get(
+        '/parent-applications/admin?registrationType=ALL&status=PENDING_REVIEW&search=fictional&page=2',
+      )
+      .set('Authorization', 'Bearer fictional-admin')
+      .expect(200);
+    expect(service.list).toHaveBeenCalledWith(
+      expect.anything(),
+      undefined,
+      2,
+      'ALL',
+      'PENDING_REVIEW',
+      'fictional',
+    );
+    for (const query of [
+      'registrationType=ADMIN',
+      'status=ACTIVE',
+      'search=' + 'x'.repeat(101),
+    ])
+      await request(app.getHttpServer())
+        .get('/parent-applications/admin?' + query)
+        .set('Authorization', 'Bearer fictional-admin')
+        .expect(400);
+  });
+  it.each(['request-changes', 'reject'])(
+    'requires an exact submitted version and a reason for %s',
+    async (action) => {
+      const path =
+        '/parent-applications/admin/00000000-0000-4000-8000-000000000001/' +
+        action;
+      await request(app.getHttpServer())
+        .post(path)
+        .set('Authorization', 'Bearer fictional-admin')
+        .send({ reason: 'local reason' })
+        .expect(400);
+      expect(service.review).not.toHaveBeenCalled();
+      await request(app.getHttpServer())
+        .post(path)
+        .set('Authorization', 'Bearer fictional-admin')
+        .send({
+          reason: 'local reason',
+          expectedVersionId: '00000000-0000-4000-8000-000000000002',
+        })
+        .expect(201);
+      expect(service.review).toHaveBeenCalledWith(
+        expect.anything(),
+        '00000000-0000-4000-8000-000000000001',
+        action === 'reject' ? 'REJECTED' : 'CHANGES_REQUESTED',
+        'local reason',
+        '00000000-0000-4000-8000-000000000002',
+      );
+    },
+  );
+  it('rejects caller-supplied approval status, user or branch overrides before provisioning', async () => {
+    await request(app.getHttpServer())
+      .post(
+        '/parent-applications/admin/00000000-0000-4000-8000-000000000001/approve',
+      )
+      .set('Authorization', 'Bearer fictional-admin')
+      .send({
+        expectedVersionId: '00000000-0000-4000-8000-000000000002',
+        identityVerified: true,
+        status: 'APPROVED',
+        branchId: 'other',
+        userId: 'fake',
+      })
+      .expect(400);
+    expect(service.approve).not.toHaveBeenCalled();
   });
 });

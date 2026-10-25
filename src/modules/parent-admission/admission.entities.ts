@@ -1,3 +1,8 @@
+import type {
+  ApplicationFormData,
+  RegistrationType,
+  SignaturePurpose,
+} from './admission.policy';
 import {
   Column,
   DataType,
@@ -6,7 +11,6 @@ import {
   PrimaryKey,
   Table,
 } from 'sequelize-typescript';
-import type { RegistrationData } from '../parent-registration/registration.validation';
 
 @Table({
   tableName: 'trainee_applications',
@@ -14,6 +18,9 @@ import type { RegistrationData } from '../parent-registration/registration.valid
   timestamps: true,
 })
 export class TraineeApplication extends Model {
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: RegistrationType;
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
@@ -22,7 +29,8 @@ export class TraineeApplication extends Model {
   @Column(DataType.TEXT) declare nationalIdEncrypted: string;
   @Column(DataType.STRING(50)) declare branchId: string;
   @Column(DataType.STRING(24)) declare status: string;
-  @Column(DataType.JSONB) declare draftData: RegistrationData;
+  @Column(DataType.JSONB)
+  declare draftData: ApplicationFormData<RegistrationType>;
   @Column(DataType.INTEGER) declare revision: number;
   @Column(DataType.SMALLINT) declare currentStep: number;
   @Column(DataType.STRING(2000)) declare feedbackReason: string | null;
@@ -48,6 +56,9 @@ export class ApplicantSession extends Model {
   updatedAt: false,
 })
 export class ApplicationVersion extends Model {
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: RegistrationType;
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
@@ -56,7 +67,8 @@ export class ApplicationVersion extends Model {
   @Column(DataType.INTEGER) declare versionNumber: number;
   @Column(DataType.INTEGER) declare submittedRevision: number;
   @Column(DataType.UUID) declare idempotencyKey: string;
-  @Column(DataType.JSONB) declare formData: RegistrationData;
+  @Column(DataType.JSONB)
+  declare formData: ApplicationFormData<RegistrationType>;
   @Column(DataType.STRING(64)) declare contentHash: string;
   @Column(DataType.JSONB) declare declarations: string[];
   @Column(DataType.STRING(80)) declare declarationVersion: string;
@@ -69,6 +81,14 @@ export class ApplicationVersion extends Model {
   updatedAt: false,
 })
 export class ApplicationEvidence extends Model {
+  @Column(DataType.STRING(50)) declare templateVersion: string | null;
+  @Column(DataType.STRING(64)) declare sourceChecksum: string | null;
+  @Column(DataType.DATE) declare generatedAt: Date | null;
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: RegistrationType;
+  @Column(DataType.STRING(32))
+  declare signaturePurpose: SignaturePurpose | null;
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
@@ -91,6 +111,8 @@ export class ApplicationEvidence extends Model {
   updatedAt: false,
 })
 export class ApplicationEvent extends Model {
+  @Column(DataType.STRING(2000)) declare reason: string | null;
+  @Column(DataType.UUID) declare versionId: string | null;
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)

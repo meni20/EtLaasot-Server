@@ -1,3 +1,4 @@
+import type { VolunteerPurpose } from './volunteer.contract';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   Body,
@@ -166,7 +167,11 @@ export class ApplicantController {
     @Body() input: StartApplicationDto,
     @Res({ passthrough: true }) res: Response,
   ) {
-    const result = await this.service.start(input.identifier, input.branchId);
+    const result = await this.service.start(
+      input.identifier,
+      input.branchId,
+      input.registrationType,
+    );
     res.cookie('parent_applicant', result.token, cookieOptions());
     const { token, ...body } = result;
     return { ...body, sessionToken: token };
@@ -231,7 +236,8 @@ export class ApplicantController {
     @Req() req: Request,
     @Param('kind') kind: string,
     @Body('revision', ParseIntPipe) revision: number,
-    @Body('signer') signer: 'parent1' | 'parent2' | undefined,
+    @Body('signer')
+    signer: 'parent1' | 'parent2' | VolunteerPurpose | undefined,
     @UploadedFile() file: Express.Multer.File,
   ) {
     return this.service.upload(
@@ -241,6 +247,18 @@ export class ApplicantController {
       file?.buffer,
       signer,
     );
+  }
+  @Get('me/pdf') async pdf(@Req() req: Request, @Res() res: Response) {
+    const result = await this.service.applicantPdf(applicantCredential(req));
+    res
+      .set({
+        'Content-Type': 'application/pdf',
+        'Content-Disposition':
+          'attachment; filename="volunteer-registration.pdf"',
+        'Cache-Control': 'private, no-store',
+        'X-Content-Type-Options': 'nosniff',
+      })
+      .send(result.bytes);
   }
   @Post('me/pdf/retry') retry(@Req() req: Request) {
     return this.service.retry(applicantCredential(req));
@@ -256,7 +274,14 @@ export class ApplicantAdminController {
     @Req() req: RegistrationRequest,
     @Query() input: ApplicationListDto,
   ) {
-    return this.service.list(req.user, input.branchId, input.page);
+    return this.service.list(
+      req.user,
+      input.branchId,
+      input.page,
+      input.registrationType,
+      input.status,
+      input.search,
+    );
   }
   @Get(':id') detail(
     @Req() req: RegistrationRequest,
@@ -299,14 +324,26 @@ export class ApplicantAdminController {
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() input: ApplicationReviewDto,
   ) {
-    return this.service.review(req.user, id, 'CHANGES_REQUESTED', input.reason);
+    return this.service.review(
+      req.user,
+      id,
+      'CHANGES_REQUESTED',
+      input.reason,
+      input.expectedVersionId,
+    );
   }
   @Post(':id/reject') reject(
     @Req() req: RegistrationRequest,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
     @Body() input: ApplicationReviewDto,
   ) {
-    return this.service.review(req.user, id, 'REJECTED', input.reason);
+    return this.service.review(
+      req.user,
+      id,
+      'REJECTED',
+      input.reason,
+      input.expectedVersionId,
+    );
   }
   @Post(':id/approve') approve(
     @Req() req: RegistrationRequest,

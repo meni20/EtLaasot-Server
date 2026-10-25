@@ -1,3 +1,4 @@
+import type { RegistrationType } from './admission.policy';
 import {
   Injectable,
   NotFoundException,
@@ -5,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
-import { Op, QueryTypes, Transaction } from 'sequelize';
+import { Op, QueryTypes, Transaction, fn, json, where } from 'sequelize';
 import User from '../user/entities/user.entity';
 import Branch from '../branch/entities/branch.entity';
 import {
@@ -94,6 +95,16 @@ export class AdmissionRepository {
       transaction: t,
     });
   }
+  events(applicationId: string, t: Transaction) {
+    return ApplicationEvent.findAll({
+      where: { applicationId },
+      order: [
+        ['createdAt', 'DESC'],
+        ['id', 'DESC'],
+      ],
+      transaction: t,
+    });
+  }
   version(values: Record<string, unknown>, t: Transaction) {
     return ApplicationVersion.create(values, { transaction: t });
   }
@@ -102,17 +113,51 @@ export class AdmissionRepository {
     action: string,
     t: Transaction,
     actorUuid?: string,
+    versionId?: string,
+    reason?: string,
   ) {
     return ApplicationEvent.create(
-      { applicationId, action, actorUuid: actorUuid ?? null },
+      {
+        applicationId,
+        action,
+        actorUuid: actorUuid ?? null,
+        versionId: versionId ?? null,
+        reason: reason ?? null,
+      },
       { transaction: t },
     );
   }
-  async list(branchIds: string[] | undefined, page: number) {
+  async list(
+    branchIds: string[] | undefined,
+    page: number,
+    registrationType: RegistrationType | 'ALL' = 'TRAINEE',
+    status?: string,
+    search?: string,
+  ) {
     const result = await TraineeApplication.findAndCountAll({
-      where: branchIds ? { branchId: { [Op.in]: branchIds } } : {},
+      where: {
+        ...(registrationType === 'ALL' ? {} : { registrationType }),
+        ...(status ? { status } : {}),
+        ...(search?.trim()
+          ? {
+              [Op.and]: where(
+                fn(
+                  'concat',
+                  json('draft_data.trainee.name'),
+                  ' ',
+                  json('draft_data.volunteer.firstName'),
+                  ' ',
+                  json('draft_data.volunteer.lastName'),
+                ),
+                { [Op.iLike]: `%${search.trim().replace(/[\\%_]/g, '\\$&')}%` },
+              ),
+            }
+          : {}),
+        ...(branchIds ? { branchId: { [Op.in]: branchIds } } : {}),
+      },
       attributes: [
         'id',
+        'registrationType',
         'branchId',
         'status',
         'draftData',
