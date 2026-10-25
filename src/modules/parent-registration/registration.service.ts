@@ -6,7 +6,9 @@ import {
   BadRequestException,
   ConflictException,
   ForbiddenException,
+  HttpException,
   Injectable,
+  Logger,
   Optional,
   NotFoundException,
 } from '@nestjs/common';
@@ -58,12 +60,23 @@ export function approvedProfileMapping(data: RegistrationData) {
 }
 @Injectable()
 export class RegistrationService {
+  private readonly logger = new Logger(RegistrationService.name);
+
   constructor(
     private readonly repo: RegistrationRepository,
     private readonly auth: AuthorizationService,
     private readonly generator: RegistrationDocumentGenerator,
     @Optional() private readonly integration?: RegistrationIntegrationService,
   ) {}
+  private async observed<T>(stage: string, work: () => Promise<T>): Promise<T> {
+    try {
+      return await work();
+    } catch (error) {
+      if (!(error instanceof HttpException))
+        this.logger.warn(`Unexpected registration service failure: ${stage}`);
+      throw error;
+    }
+  }
   private actor(actor: AuthUser) {
     const id = this.auth.getActorId(actor);
     if (!id) throw new ForbiddenException('Authenticated identity required');
@@ -436,12 +449,18 @@ export class RegistrationService {
   document(actor: AuthUser, id: string, documentId: string) {
     return this.adminForm(actor, id, async (form, _target, t) => {
       const doc = submittedEvidence(
-        await this.repo.documents(form.id, t),
-        await this.repo.versions(form.id, t),
+        await this.observed('document-metadata', () =>
+          this.repo.documents(form.id, t),
+        ),
+        await this.observed('document-versions', () =>
+          this.repo.versions(form.id, t),
+        ),
       ).find((d) => d.id === documentId);
       if (!doc) throw new NotFoundException();
       return {
-        bytes: await this.integration!.download(doc, 'renewal', id, t),
+        bytes: await this.observed('document-storage-download', () =>
+          this.integration!.download(doc, 'renewal', id, t),
+        ),
         mimeType: doc.mimeType,
       };
     });
@@ -488,22 +507,32 @@ export class RegistrationService {
     ) => Promise<T>,
   ) {
     // The first read yields only the owner ID; no signed data leaves the service.
-    return this.repo.transaction(async (t) => {
-      const initial = await this.repo.formReference(formId, t);
+    return this.observed('admin-transaction', () =>
+      this.repo.transaction(async (t) => {
+      const initial = await this.observed('admin-form-reference', () =>
+        this.repo.formReference(formId, t),
+      );
       this.auth.assertAdminForBranch(actor, initial.branchId);
-      const target = await this.repo.lockTrainee(initial.traineeUuid, t);
+      const target = await this.observed('admin-trainee-lock', () =>
+        this.repo.lockTrainee(initial.traineeUuid, t),
+      );
       if (!target.roles.some((role) => role.roleId === AUTH_ROLES.TRAINEE.id))
         throw new ForbiddenException('Target must be a trainee');
       this.auth.assertAdminForBranch(actor, target.user.branchId);
-      const form = await this.repo.form(formId, t);
+      const form = await this.observed('admin-form', () =>
+        this.repo.form(formId, t),
+      );
       if (this.integration?.enabled()) {
-        await this.integration.attest(t);
+        await this.observed('admin-attestation', () =>
+          this.integration!.attest(t),
+        );
       }
       this.auth.assertAdminForBranch(actor, form.branchId);
       // Historical data requires authority over both historical and current branch.
       this.auth.assertAdminForBranch(actor, target.user.branchId);
-      return work(form, target, t);
-    });
+      return this.observed('admin-work', () => work(form, target, t));
+      }),
+    );
   }
   private safeDocuments(
     docs: Awaited<ReturnType<RegistrationRepository['documents']>>,
