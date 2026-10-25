@@ -136,6 +136,23 @@ export class RegistrationIntegrationService {
       'Private registration integration is unavailable',
     );
   }
+  private safeFailureDetail(error: unknown) {
+    if (!(error instanceof Error)) return 'non-error';
+    let message = error.message;
+    for (const secret of [
+      process.env.SUPABASE_URL,
+      process.env.SUPABASE_SERVICE_ROLE_KEY,
+    ]) {
+      if (secret) message = message.replaceAll(secret, '[redacted]');
+    }
+    message = message
+      .replace(/eyJ[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+\.[A-Za-z0-9_-]+/g, '[redacted-jwt]')
+      .replace(/https?:\/\/[^\s]+/g, '[redacted-url]')
+      .slice(0, 240);
+    const code =
+      'code' in error && typeof error.code === 'string' ? error.code : 'none';
+    return `${error.name}:${code}:${message}`;
+  }
   async attest(t?: Transaction) {
     const localDevelopment =
       process.env.NODE_ENV === 'development' &&
@@ -200,6 +217,9 @@ export class RegistrationIntegrationService {
       );
     } catch (error) {
       if (error instanceof HttpException) throw error;
+      this.logger.warn(
+        `Storage client initialization detail: ${this.safeFailureDetail(error)}`,
+      );
       return this.fail('storage-client-create');
     }
     let name: string;
