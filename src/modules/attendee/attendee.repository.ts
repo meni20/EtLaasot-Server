@@ -129,7 +129,9 @@ export default class AttendeeRepository {
   public async checkIn(attendeeId: string, checkedInBy: string) {
     return Attendee.update(
       { checkedIn: true, checkedInAt: new Date(), checkedInBy },
-      { where: { id: attendeeId } },
+      // A retry (including a lost response) must not replace the first actor or
+      // timestamp. The conditional update is atomic for concurrent requests.
+      { where: { id: attendeeId, checkedIn: { [Op.not]: true } } },
     );
   }
 

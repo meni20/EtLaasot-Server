@@ -360,14 +360,14 @@ export class RegistrationRepository {
     });
     return period;
   }
-  list(filters: {
+  async list(filters: {
     branchIds?: string[];
     activityYearId?: string;
     status?: string;
     page: number;
     pageSize: number;
   }) {
-    return RegistrationForm.findAndCountAll({
+    const result = await RegistrationForm.findAndCountAll({
       where: {
         ...(filters.branchIds
           ? { branchId: { [Op.in]: filters.branchIds } }
@@ -396,5 +396,39 @@ export class RegistrationRepository {
       limit: filters.pageSize,
       offset: (filters.page - 1) * filters.pageSize,
     });
+    const formIds = result.rows.map((row) => row.id);
+    const pdfRows = formIds.length
+      ? await this.db.query<{ formId: string; documentId: string }>(
+          `SELECT v.form_id AS "formId", d.id AS "documentId"
+           FROM public.registration_form_versions v
+           JOIN public.registration_form_documents d
+             ON d.form_id=v.form_id AND d.version_id=v.id
+           WHERE v.form_id IN (:formIds)
+             AND d.kind='REGISTRATION_PDF'
+             AND d.mime_type='application/pdf'
+             AND d.verified_at IS NOT NULL
+             AND NOT EXISTS (
+               SELECT 1 FROM public.registration_form_versions newer
+               WHERE newer.form_id=v.form_id
+                 AND newer.version_number>v.version_number
+             )`,
+          {
+            replacements: { formIds },
+            type: QueryTypes.SELECT,
+            logging: false,
+          },
+        )
+      : [];
+    const pdfByForm = new Map(
+      pdfRows.map((row) => [row.formId, row.documentId]),
+    );
+    return {
+      count: result.count,
+      rows: result.rows.map((row) => ({
+        ...row.get({ plain: true }),
+        pdfDocumentId:
+          row.documentStatus === 'READY' ? (pdfByForm.get(row.id) ?? null) : null,
+      })),
+    };
   }
 }

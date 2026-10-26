@@ -63,7 +63,12 @@ export default class ActivityService {
       await this.activityRepository.findActiveByVolunteer(authUser.userId);
 
     if (existingActivity) {
-      throw new ConflictException('Volunteer already has an active activity');
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'Volunteer already has an active activity',
+        error: 'Conflict',
+        code: 'ACTIVITY_ALREADY_ACTIVE',
+      });
     }
 
     const [volunteer, trainee, event] = await Promise.all([
@@ -163,27 +168,50 @@ export default class ActivityService {
     const activity = await this.activityRepository.findById(activityId);
 
     if (!activity) {
-      throw new NotFoundException('Activity not found');
+      throw new NotFoundException({
+        statusCode: 404,
+        message: 'Activity not found',
+        error: 'Not Found',
+        code: 'ACTIVITY_NOT_FOUND',
+      });
     }
 
     if (activity.volunteerId !== authUser.userId) {
-      throw new ForbiddenException('You can only end your own activity');
+      throw new ForbiddenException({
+        statusCode: 403,
+        message: 'You can only end your own activity',
+        error: 'Forbidden',
+        code: 'ACTIVITY_NOT_OWNED',
+      });
     }
 
     if (activity.status !== VolunteerActivityStatus.ACTIVE) {
-      throw new ConflictException('Only active activities can be ended');
+      throw new ConflictException({
+        statusCode: 409,
+        message: 'Only active activities can be ended',
+        error: 'Conflict',
+        code: 'ACTIVITY_NOT_ACTIVE',
+      });
     }
 
     if (!activity.startTime) {
-      throw new BadRequestException(
-        'Active activity is missing a valid start time',
-      );
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'Active activity is missing a valid start time',
+        error: 'Bad Request',
+        code: 'ACTIVITY_INVALID_START',
+      });
     }
 
     const endTime = new Date();
 
     if (endTime.getTime() < new Date(activity.startTime).getTime()) {
-      throw new BadRequestException('End time must be after start time');
+      throw new BadRequestException({
+        statusCode: 400,
+        message: 'End time must be after start time',
+        error: 'Bad Request',
+        code: 'ACTIVITY_INVALID_END',
+      });
     }
 
     await activity.update({
@@ -281,9 +309,7 @@ export default class ActivityService {
       volunteerId: query.volunteerId?.trim()
         ? query.volunteerId.trim()
         : undefined,
-      traineeId: query.traineeId?.trim()
-        ? query.traineeId.trim()
-        : undefined,
+      traineeId: query.traineeId?.trim() ? query.traineeId.trim() : undefined,
       eventId: query.eventId?.trim() || undefined,
       status: query.status,
       startDate: parseActivityDateFilter(query.startDate, 'start'),
@@ -298,7 +324,12 @@ export default class ActivityService {
     const activity = await this.activityRepository.findById(activityId);
 
     if (!activity) {
-      throw new NotFoundException('Activity not found');
+      throw new NotFoundException({
+        statusCode: 404,
+        message: 'Activity not found',
+        error: 'Not Found',
+        code: 'ACTIVITY_NOT_FOUND',
+      });
     }
 
     if (
