@@ -126,6 +126,64 @@ export async function traineeFormStatuses(
     ]),
   );
 }
+// Metadata for an already-authorized volunteer list. Keep retrieval on the
+// existing admin document endpoint; never return storage paths or signed URLs.
+export async function volunteerApprovedRegistrationPdfs(
+  db: Sequelize,
+  volunteers: Array<{ id: string; branchId?: string | null }>,
+): Promise<Map<string, TraineeFormPdf>> {
+  if (
+    !volunteers.length ||
+    !getBooleanEnv('PARENT_ADMISSION_SCHEMA_READY', false) ||
+    !getBooleanEnv('APPLICANT_REGISTRATION_ENABLED', false) ||
+    !getBooleanEnv('VOLUNTEER_REGISTRATION_ENABLED', false)
+  )
+    return new Map();
+  const rows = await db.query<{
+    userId: string;
+    formId: string;
+    documentId: string;
+  }>(
+    `WITH listed AS (
+       SELECT * FROM jsonb_to_recordset(CAST(:volunteers AS jsonb)) AS l(id uuid, branch_id text)
+     )
+     SELECT DISTINCT ON (a.provisioned_user_id)
+            a.provisioned_user_id AS "userId", a.id AS "formId", e.id AS "documentId"
+     FROM public.trainee_applications a
+     JOIN listed l ON l.id=a.provisioned_user_id AND l.branch_id=a.branch_id
+     JOIN public.trainee_application_versions v
+       ON v.application_id=a.id AND v.registration_type='VOLUNTEER'
+     JOIN public.trainee_application_evidence e
+       ON e.application_id=a.id AND e.version_id=v.id
+       AND e.registration_type='VOLUNTEER'
+       AND e.kind='REGISTRATION_PDF' AND e.mime_type='application/pdf'
+       AND e.verified_at IS NOT NULL AND e.generated_at IS NOT NULL
+       AND e.content_hash=v.content_hash AND e.file_size>0
+     WHERE a.registration_type='VOLUNTEER' AND a.status='APPROVED'
+       AND a.document_status='READY'
+       AND NOT EXISTS (
+         SELECT 1 FROM public.trainee_application_versions newer
+         WHERE newer.application_id=a.id AND newer.version_number>v.version_number
+       )
+     ORDER BY a.provisioned_user_id,a.reviewed_at DESC,a.id DESC,e.id DESC`,
+    {
+      replacements: {
+        volunteers: JSON.stringify(
+          volunteers.map((v) => ({ id: v.id, branch_id: v.branchId ?? null })),
+        ),
+      },
+      type: QueryTypes.SELECT,
+      logging: false,
+    },
+  );
+  return new Map(
+    rows.map((row) => [
+      row.userId,
+      { source: 'APPLICATION', formId: row.formId, documentId: row.documentId },
+    ]),
+  );
+}
+
 @Injectable()
 export class RegistrationRepository {
   constructor(@InjectConnection() private readonly db: Sequelize) {}

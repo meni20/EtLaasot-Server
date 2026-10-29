@@ -1,5 +1,8 @@
 import UserRepository from './user.repository';
-import { traineeFormStatuses } from '../parent-registration/registration.repository';
+import {
+  traineeFormStatuses,
+  volunteerApprovedRegistrationPdfs,
+} from '../parent-registration/registration.repository';
 import { getBooleanEnv } from '../../config/env.util';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import {
@@ -223,17 +226,27 @@ export default class UserService {
     }
   }
 
-  public getAllVolunteers(
+  public async getAllVolunteers(
     branchId?: string,
     includeNationalIdRevealId = false,
     status: UserListStatus = 'active',
+    includeRegistrationPdf = false,
   ) {
     try {
-      return this.userRepository.getAllVolunteers(
+      const volunteers = await this.userRepository.getAllVolunteers(
         branchId,
         includeNationalIdRevealId,
         status,
       );
+      if (!includeRegistrationPdf) return volunteers;
+      const pdfs = await volunteerApprovedRegistrationPdfs(
+        this.sequelize,
+        volunteers,
+      );
+      return volunteers.map((volunteer) => ({
+        ...volunteer.toJSON(),
+        volunteerRegistrationPdf: pdfs.get(volunteer.id) ?? null,
+      }));
     } catch (err) {
       throw new InternalServerErrorException(err);
     }

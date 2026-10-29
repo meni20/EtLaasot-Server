@@ -103,6 +103,7 @@ export default class UserController {
       branchId,
       true,
       this.parseListStatus(status),
+      true,
     );
   }
 
