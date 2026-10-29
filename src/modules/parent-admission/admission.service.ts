@@ -60,7 +60,11 @@ import {
 } from '../parent-registration/registration.service';
 import { AdmissionRepository } from './admission.repository';
 import { AdmissionEvidenceGateway } from './admission.evidence';
-import { applicantToken, credentialHash } from './admission.security';
+import {
+  applicantToken,
+  applicantRecoveryCode,
+  credentialHash,
+} from './admission.security';
 import type {
   TraineeApplication,
   ApplicationEvidence,
@@ -93,7 +97,7 @@ export class AdmissionService {
   }
   private credentials() {
     const token = applicantToken(),
-      recoveryCode = applicantToken();
+      recoveryCode = applicantRecoveryCode();
     return {
       token,
       recoveryCode,
@@ -242,6 +246,43 @@ export class AdmissionService {
         recoveryCode: nextCode,
         expiresAt: stored.expiresAt,
       };
+    });
+  }
+  reissueRecoveryCode(actor: AuthUser, id: string, identityVerified: boolean) {
+    if (identityVerified !== true)
+      throw new BadRequestException({
+        code: 'IDENTITY_VERIFICATION_REQUIRED',
+        message: 'Independent identity verification is required',
+      });
+    return this.repo.transaction(async (t) => {
+      const session = await this.repo.sessionForReissue(id, t);
+      const app = await this.repo.application(id, t);
+      this.auth.assertAdminForBranch(actor, app.branchId);
+      const managerId = this.auth.getActorId(actor);
+      if (!managerId) throw new NotFoundException();
+      admissionPolicy(app.registrationType).assertAvailable('READ');
+      if (app.status === 'APPROVED' || app.provisionedUserId)
+        throw new ConflictException({
+          code: 'APPLICATION_ALREADY_PROVISIONED',
+          message: 'Use account login for approved applications',
+        });
+      const {
+        recoveryCode,
+        token: _unusedToken,
+        ...stored
+      } = this.credentials();
+      // The new random session token is not delivered. Only redemption of the
+      // replacement recovery code grants applicant access. All old tokens fail.
+      await session.update({ ...stored, revokedAt: null }, { transaction: t });
+      await this.repo.event(
+        app.id,
+        'RECOVERED',
+        t,
+        managerId,
+        undefined,
+        'הונפק קוד שחזור חדש לאחר אימות עצמאי של זהות הפונה',
+      );
+      return { recoveryCode, recoveryExpiresAt: stored.recoveryExpiresAt };
     });
   }
   revoke(token: string) {
@@ -747,12 +788,14 @@ export class AdmissionService {
       admissionPolicy(app.registrationType).assertAvailable('REVIEW');
       return {
         application: this.summary(app),
+        recoveryEligible: app.status !== 'APPROVED' && !app.provisionedUserId,
         branch: await this.repo.branch(app.branchId, t),
         history: (await this.repo.events(app.id, t)).map((e) => ({
           id: e.id,
           action: e.action,
           versionId: e.versionId,
           reason: e.reason,
+          actorUuid: e.actorUuid,
           createdAt: e.createdAt,
         })),
         versions: (await this.repo.versions(app.id, t)).map((v) => ({

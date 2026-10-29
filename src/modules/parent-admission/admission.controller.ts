@@ -34,7 +34,11 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { RegistrationRequest } from '../parent-registration/registration.guard';
 import { RegistrationErrorInterceptor } from '../parent-registration/registration.guard';
 import { AdmissionService } from './admission.service';
-import { AdmissionRateLimiter } from './admission.security';
+import {
+  AdmissionRateLimiter,
+  normalizeRecoveryCode,
+  RECOVERY_CODE_PATTERN,
+} from './admission.security';
 import { getNationalIdDetails } from '../user/national-id.util';
 import {
   ApplicationApprovalDto,
@@ -43,6 +47,7 @@ import {
   ApplicationReviewDto,
   IdentifyDto,
   RecoverApplicationDto,
+  ReissueRecoveryCodeDto,
   StartApplicationDto,
   SubmitApplicationDto,
 } from './admission.dto';
@@ -109,6 +114,10 @@ export class AdmissionPublicGuard implements CanActivate {
       } catch {
         /* Invalid input still consumes the IP/global budget. */
       }
+    }
+    if (action === 'recover' && typeof req.body?.recoveryCode === 'string') {
+      const code = normalizeRecoveryCode(req.body.recoveryCode);
+      if (RECOVERY_CODE_PATTERN.test(code)) identity = code;
     }
     await this.limits.consume(
       action,
@@ -269,7 +278,26 @@ export class ApplicantController {
 @UseGuards(JwtAuthGuard, AdmissionFeatureGuard)
 @UseInterceptors(RegistrationErrorInterceptor)
 export class ApplicantAdminController {
-  constructor(private readonly service: AdmissionService) {}
+  constructor(
+    private readonly service: AdmissionService,
+    private readonly limits: AdmissionRateLimiter,
+  ) {}
+  @Post(':id/recovery-code/reissue') async reissueRecoveryCode(
+    @Req() req: RegistrationRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() input: ReissueRecoveryCodeDto,
+  ) {
+    await this.limits.consume(
+      'reissue',
+      String(req.user.userId ?? req.user.sub ?? 'unknown'),
+      id,
+    );
+    return this.service.reissueRecoveryCode(
+      req.user,
+      id,
+      input.identityVerified,
+    );
+  }
   @Get() list(
     @Req() req: RegistrationRequest,
     @Query() input: ApplicationListDto,

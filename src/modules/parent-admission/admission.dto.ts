@@ -10,9 +10,14 @@ import {
   Length,
   Max,
   Min,
+  Matches,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 import type { ApplicationFormData } from './admission.policy';
+import {
+  normalizeRecoveryCode,
+  RECOVERY_CODE_PATTERN,
+} from './admission.security';
 export class IdentifyDto {
   @IsString() @Length(5, 9) identifier: string;
 }
@@ -21,7 +26,15 @@ export class StartApplicationDto extends IdentifyDto {
   @IsString() @Length(1, 50) branchId: string;
 }
 export class RecoverApplicationDto {
-  @IsString() @Length(43, 43) recoveryCode: string;
+  @Transform(({ value }) =>
+    typeof value === 'string' ? normalizeRecoveryCode(value) : value,
+  )
+  @IsString()
+  @Matches(RECOVERY_CODE_PATTERN)
+  recoveryCode: string;
+}
+export class ReissueRecoveryCodeDto {
+  @Transform(({ obj, key }) => obj[key]) @IsBoolean() identityVerified: boolean;
 }
 export class ApplicationDraftDto {
   @IsInt() @Min(0) revision: number;

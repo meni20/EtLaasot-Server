@@ -11,6 +11,24 @@ import { Sequelize } from 'sequelize-typescript';
 import { QueryTypes } from 'sequelize';
 
 export const applicantToken = () => randomBytes(32).toString('base64url');
+const RECOVERY_ALPHABET = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+export const RECOVERY_CODE_PATTERN =
+  /^(?:[A-Za-z0-9_-]{43}|[ABCDEFGHJKLMNPQRSTUVWXYZ23456789]{16})$/;
+// Sixteen independent base-32 symbols: 80 bits of CSPRNG entropy, without
+// modulo bias (32 divides 256). Session tokens retain their existing 256 bits.
+export function applicantRecoveryCode() {
+  const code = Array.from(
+    randomBytes(16),
+    (byte) => RECOVERY_ALPHABET[byte & 31],
+  ).join('');
+  return code.match(/.{4}/g)!.join('-');
+}
+export function normalizeRecoveryCode(value: string) {
+  const trimmed = value.trim();
+  // Legacy credentials are case-sensitive; never uppercase or strip them.
+  if (/^[A-Za-z0-9_-]{43}$/.test(trimmed)) return trimmed;
+  return trimmed.replace(/[\s-]/g, '').toUpperCase();
+}
 export function admissionHash(purpose: string, value: string) {
   const pepper = getRequiredEnv('PARENT_REGISTRATION_TOKEN_PEPPER');
   if (!/^[0-9a-f]{64}$/i.test(pepper))
@@ -22,11 +40,16 @@ export function admissionHash(purpose: string, value: string) {
     .digest('hex');
 }
 export function credentialHash(kind: 'session' | 'recovery', value: string) {
-  if (!/^[A-Za-z0-9_-]{43}$/.test(value))
+  const normalized = kind === 'recovery' ? normalizeRecoveryCode(value) : value;
+  if (
+    !(kind === 'recovery' ? RECOVERY_CODE_PATTERN : /^[A-Za-z0-9_-]{43}$/).test(
+      normalized,
+    )
+  )
     throw new UnauthorizedException(
       'Applicant credential is invalid or expired',
     );
-  return admissionHash(kind, value);
+  return admissionHash(kind, normalized);
 }
 
 @Injectable()

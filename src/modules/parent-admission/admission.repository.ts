@@ -74,6 +74,16 @@ export class AdmissionRepository {
       );
     return row;
   }
+  async sessionForReissue(applicationId: string, t: Transaction) {
+    // Includes revoked/expired rows. Lock credentials before the application,
+    // matching recovery/save lock order and serializing concurrent reissues.
+    const row = await ApplicantSession.findByPk(applicationId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!row) throw new NotFoundException('Application credentials not found');
+    return row;
+  }
   async application(id: string, t: Transaction) {
     const row = await TraineeApplication.findByPk(id, {
       transaction: t,
