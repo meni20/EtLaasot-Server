@@ -252,6 +252,21 @@ export default class UserService {
     }
   }
 
+  public promoteVolunteerToBranchAdmin(
+    userId: string,
+    branchId: string,
+    actorId: string,
+  ) {
+    return this.sequelize.transaction((transaction) =>
+      this.userRepository.promoteVolunteerToBranchAdmin(
+        userId,
+        branchId,
+        actorId,
+        transaction,
+      ),
+    );
+  }
+
   public countByBranchAndRole(branchId: string, roleId: number) {
     try {
       return this.userRepository.countByBranchAndRole(branchId, roleId);

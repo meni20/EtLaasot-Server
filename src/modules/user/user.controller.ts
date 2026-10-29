@@ -20,6 +20,7 @@ import { AuthorizationService } from '../auth/authorization.service';
 import { UpdateCurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import { UpdateUserDto } from './dtos/update-user.dto';
 import { ArchiveUserDto } from './dtos/archive-user.dto';
+import { PromoteVolunteerDto } from './dtos/promote-volunteer.dto';
 import { AllowRegistrationAccess } from '../parent-registration/registration-request-access';
 
 @Controller('user')
@@ -156,6 +157,23 @@ export default class UserController {
   ) {
     await this.authorizationService.assertAdminForUserUuid(req.user, userUuid);
     return this.userService.getNationalIdByUuid(userUuid);
+  }
+
+  @Post(':userId/promote-to-branch-admin')
+  public promoteVolunteer(
+    @Param('userId', new ParseUUIDPipe({ version: '4' })) userId: string,
+    @Body() input: PromoteVolunteerDto,
+    @Req() req: any,
+  ) {
+    this.authorizationService.assertSuperAdmin(req.user);
+    const actorId = this.authorizationService.getActorId(req.user);
+    if (!actorId)
+      throw new BadRequestException('Authenticated actor is required');
+    return this.userService.promoteVolunteerToBranchAdmin(
+      userId,
+      input.branchId,
+      actorId,
+    );
   }
 
   @Patch(':userId/password-reset')

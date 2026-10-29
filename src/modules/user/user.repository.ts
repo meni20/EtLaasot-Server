@@ -1,10 +1,15 @@
 import { col, FindAttributeOptions, Op, Transaction } from 'sequelize';
 import User from './entities/user.entity';
-import { Injectable } from '@nestjs/common';
+import {
+  ConflictException,
+  Injectable,
+  NotFoundException,
+} from '@nestjs/common';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import UserRole from '../user-role/enitites/user-role.entity';
 import Event from '../event/entities/event.entity';
+import Branch from '../branch/entities/branch.entity';
 
 @Injectable()
 export default class UserRepository {
@@ -267,6 +272,83 @@ export default class UserRepository {
     return await User.findByPk(id, {
       attributes: this.getSafeAttributes(includeNotes),
       include: [UserRole],
+    });
+  }
+
+  public async promoteVolunteerToBranchAdmin(
+    userId: string,
+    expectedBranchId: string,
+    actorId: string,
+    transaction: Transaction,
+  ) {
+    // Serialize promotion with concurrent promotions and account updates.
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'branchId', 'isActive'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!user) throw new NotFoundException('User not found');
+    if (!user.isActive || !user.branchId || user.branchId !== expectedBranchId)
+      throw new ConflictException({
+        code: 'PROMOTION_BRANCH_OR_STATUS_CHANGED',
+        message: 'Reload an active volunteer in the same branch',
+      });
+    const branch = await Branch.findOne({
+      where: { id: user.branchId, isActive: true },
+      transaction,
+      lock: transaction.LOCK.SHARE,
+    });
+    if (!branch)
+      throw new ConflictException({
+        code: 'PROMOTION_BRANCH_INACTIVE',
+        message: 'An active branch is required',
+      });
+    const roles = await UserRole.findAll({
+      where: { userId },
+      paranoid: false,
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    const activeRoles = roles.filter((role) => !role.getDataValue('deletedAt'));
+    const volunteer = activeRoles.find(
+      (role) => role.roleId === AUTH_ROLES.VOLUNTEER.id,
+    );
+    if (
+      activeRoles.length !== 1 ||
+      !volunteer ||
+      volunteer.resourceId !== user.branchId
+    )
+      throw new ConflictException({
+        code: 'PROMOTION_ROLE_CHANGED',
+        message: 'Only a volunteer without other roles can be promoted',
+      });
+    const values = {
+      resourceId: user.branchId,
+      grantedBy: actorId,
+      expirationDate: new Date(
+        new Date().setFullYear(new Date().getFullYear() + 1),
+      ),
+    };
+    // The composite PK includes soft-deleted grants. Reuse a historical branch
+    // admin row rather than failing its uniqueness constraint on a re-promotion.
+    const previousAdmin = roles.find(
+      (role) => role.roleId === AUTH_ROLES.BRANCH_ADMIN.id,
+    );
+    if (previousAdmin) {
+      await previousAdmin.restore({ transaction });
+      await previousAdmin.update(values, { transaction });
+    } else {
+      await UserRole.create(
+        { userId, roleId: AUTH_ROLES.BRANCH_ADMIN.id, ...values },
+        { transaction },
+      );
+    }
+    await volunteer.destroy({ transaction });
+    // Keep the account/password/profile untouched and return only safe fields.
+    return User.findByPk(userId, {
+      attributes: this.getSafeAttributes(true),
+      include: [UserRole],
+      transaction,
     });
   }
 
