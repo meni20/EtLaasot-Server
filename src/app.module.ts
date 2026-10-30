@@ -20,6 +20,7 @@ import { PwaInstallationModule } from './modules/pwa-installation/pwa-installati
 import { PushNotificationModule } from './modules/push-notification/push-notification.module';
 import { registrationFeatureModules } from './modules/parent-registration/parent-registration.module';
 import { admissionFeatureModules } from './modules/parent-admission/admission.module';
+import { hasExpectedRegistrationConfiguration } from './modules/parent-registration/registration-environment';
 import Role from './modules/roles/enitites/roles.entity';
 import { AuthorizationModule } from './modules/auth/authorization.module';
 import { AppController } from './app.controller';
@@ -98,31 +99,30 @@ const getDbDialectOptions = () => {
         afterConnect: async (connection: unknown) => {
           if (!getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false))
             return;
-          // Attest every new local integration pool connection before ORM or
-          // authentication writes; deployed defaults do not enable this mode.
+          // Attest every enabled registration connection before ORM/auth writes.
+          // Project-bound credentials + verified TLS remain valid across managed
+          // database address rotation; an IP address is not project identity.
           const client = connection as {
             query(sql: string): Promise<{ rows: Array<{ ok: boolean }> }>;
             connection: { stream: { encrypted: boolean; authorized: boolean } };
           };
           if (
-            process.env.SUPABASE_URL !==
-              'https://vlysppqfozfiwcmsyban.supabase.co' ||
-            process.env.DB_USER !== 'etlaasot_app.vlysppqfozfiwcmsyban' ||
+            !hasExpectedRegistrationConfiguration() ||
             !client.connection.stream.encrypted ||
             !client.connection.stream.authorized
           ) {
             throw new Error(
-              'Local integration database identity or TLS verification failed',
+              'Registration database identity or TLS verification failed',
             );
           }
           await client.query('BEGIN READ ONLY');
           try {
             const result = await client.query(
-              "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_addr()='2a05:d014:8ef:5902:b67d:7199:8fac:e6d0'::inet AND inet_server_port()=5432 AS ok",
+              "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_port()=5432 AND NOT (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user) AS ok",
             );
             if (result.rows[0]?.ok !== true)
               throw new Error(
-                'Local integration database identity verification failed',
+                'Registration database identity verification failed',
               );
             await client.query('COMMIT');
           } catch (error) {

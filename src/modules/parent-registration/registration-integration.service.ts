@@ -1,4 +1,14 @@
 import {
+  hasExpectedRegistrationConfiguration,
+  isAllowedDocumentsBaseUrl,
+} from './registration-environment';
+export {
+  isAllowedDocumentsBaseUrl,
+  isExpectedDevServiceRoleKey,
+  isVerifiedRailwayDevRuntime,
+  isVerifiedRailwayProductionRuntime,
+} from './registration-environment';
+import {
   volunteerRenderRequest,
   VOLUNTEER_TEMPLATE_VERSION,
 } from '../parent-admission/volunteer-render.contract';
@@ -92,76 +102,10 @@ export interface EvidenceRecord {
 }
 const sha = (b: Buffer) => createHash('sha256').update(b).digest('hex');
 const MAX = 10 * 1024 * 1024;
-const SUPABASE_DEV_REF = 'vlysppqfozfiwcmsyban';
-const SUPABASE_DEV_URL = `https://${SUPABASE_DEV_REF}.supabase.co`;
-const SUPABASE_DEV_DB_HOST = 'aws-0-eu-central-1.pooler.supabase.com';
-const SUPABASE_DEV_DB_USER = `etlaasot_app.${SUPABASE_DEV_REF}`;
-const RAILWAY_DEV_PROJECT_ID = 'e950a261-d932-48c2-bc19-86287cb374ef';
-const RAILWAY_DEV_ENVIRONMENT_ID = '6b2b0ac3-9131-454c-9a42-4df26937f521';
-const RAILWAY_DOCUMENTS_HOST = 'etlaasot-documents.railway.internal';
 // @types/ws includes a server-side `new WebSocket(null)` overload which makes
 // its otherwise-compatible client constructor fail structural assignment.
 const NODE_WEBSOCKET_TRANSPORT =
   WebSocket as unknown as WebSocketLikeConstructor;
-
-export const isVerifiedRailwayDevRuntime = () =>
-  process.env.NODE_ENV === 'development' &&
-  process.env.BRANCH_NAME === 'dev' &&
-  process.env.RAILWAY_PROJECT_ID === RAILWAY_DEV_PROJECT_ID &&
-  process.env.RAILWAY_ENVIRONMENT_ID === RAILWAY_DEV_ENVIRONMENT_ID &&
-  process.env.RAILWAY_ENVIRONMENT_NAME === 'dev';
-
-export const isAllowedDocumentsBaseUrl = (value: string) => {
-  let url: URL;
-  try {
-    url = new URL(value);
-  } catch {
-    return false;
-  }
-  if (
-    url.protocol !== 'http:' ||
-    url.username ||
-    url.password ||
-    url.pathname !== '/' ||
-    url.search ||
-    url.hash
-  )
-    return false;
-  if (['127.0.0.1', 'localhost'].includes(url.hostname)) return true;
-  return (
-    isVerifiedRailwayDevRuntime() &&
-    url.hostname === RAILWAY_DOCUMENTS_HOST &&
-    url.port === '3000'
-  );
-};
-
-export const isExpectedDevServiceRoleKey = (value: string | undefined) => {
-  if (!value) return false;
-  try {
-    const parts = value.split('.');
-    if (parts.length !== 3) return false;
-    const claims = JSON.parse(
-      Buffer.from(parts[1], 'base64url').toString('utf8'),
-    ) as { ref?: unknown; role?: unknown; exp?: unknown };
-    return (
-      claims.ref === SUPABASE_DEV_REF &&
-      claims.role === 'service_role' &&
-      typeof claims.exp === 'number' &&
-      claims.exp * 1000 > Date.now()
-    );
-  } catch {
-    return false;
-  }
-};
-
-const hasExpectedDevConfiguration = () =>
-  process.env.SUPABASE_URL === SUPABASE_DEV_URL &&
-  process.env.DB_HOST === SUPABASE_DEV_DB_HOST &&
-  process.env.DB_PORT === '5432' &&
-  process.env.DB_NAME === 'postgres' &&
-  process.env.DB_USER === SUPABASE_DEV_DB_USER &&
-  process.env.DB_SSL === 'true' &&
-  isExpectedDevServiceRoleKey(process.env.SUPABASE_SERVICE_ROLE_KEY);
 
 @Injectable()
 export class RegistrationIntegrationService {
@@ -198,13 +142,9 @@ export class RegistrationIntegrationService {
     return `${error.name}:${code}:${message}`;
   }
   async attest(t?: Transaction) {
-    const localDevelopment =
-      process.env.NODE_ENV === 'development' &&
-      !process.env.RAILWAY_ENVIRONMENT_ID;
     if (
       !this.enabled() ||
-      (!localDevelopment && !isVerifiedRailwayDevRuntime()) ||
-      !hasExpectedDevConfiguration() ||
+      !hasExpectedRegistrationConfiguration() ||
       getBooleanEnv('DB_SYNC', false) ||
       getBooleanEnv('DB_LOGGING', false)
     )
