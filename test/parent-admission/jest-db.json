@@ -1,0 +1,13 @@
+{
+  "rootDir": "../..",
+  "testRegex": "test/parent-admission/.*\\.db-spec\\.ts$",
+  "transform": {
+    "^.+\\.ts$": [
+      "ts-jest",
+      { "tsconfig": "test/parent-admission/tsconfig.json" }
+    ]
+  },
+  "testEnvironment": "node",
+  "moduleNameMapper": { "^src/(.*)$": "<rootDir>/src/$1" },
+  "testTimeout": 20000
+}

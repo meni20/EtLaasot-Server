@@ -1,4 +1,9 @@
 import UserRepository from './user.repository';
+import {
+  traineeFormStatuses,
+  volunteerApprovedRegistrationPdfs,
+} from '../parent-registration/registration.repository';
+import { getBooleanEnv } from '../../config/env.util';
 import { IUser, ShirtSize, UserGender } from './interfaces/user.interface';
 import {
   BadRequestException,
@@ -10,6 +15,7 @@ import {
 import UserRoleService from '../user-role/user-role.service';
 import { AUTH_ROLES } from 'src/constants/auth.constants';
 import { Sequelize } from 'sequelize-typescript';
+import type { Transaction } from 'sequelize';
 import { randomUUID } from 'crypto';
 import { CurrentUserProfileDto } from './dtos/current-user-profile.dto';
 import {
@@ -41,16 +47,19 @@ export default class UserService {
     assertNationalIdEncryptionKeyConfigured();
   }
 
-  async createUserWithRole(userData: IUser) {
+  async createUserWithRole(userData: IUser, parentTransaction?: Transaction) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
     const nationalIdDetails = getNationalIdDetails(userData.id);
-    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    await this.assertNationalIdAvailable(
+      nationalIdDetails.nationalIdHash,
+      parentTransaction,
+    );
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
     try {
-      const user = await this.sequelize.transaction(async (transaction) => {
+      const createInTransaction = async (transaction: Transaction) => {
         const user = await this.userRepository.create(
           this.normalizeCreateUserData(userData, nationalIdDetails, {
             passwordHash,
@@ -68,7 +77,10 @@ export default class UserService {
         );
 
         return user;
-      });
+      };
+      const user = parentTransaction
+        ? await createInTransaction(parentTransaction)
+        : await this.sequelize.transaction(createInTransaction);
 
       return {
         user,
@@ -81,16 +93,22 @@ export default class UserService {
     }
   }
 
-  async createTraineeWithRole(userData: IUser) {
+  async createTraineeWithRole(
+    userData: IUser,
+    parentTransaction?: Transaction,
+  ) {
     this.validateDateOfBirth(userData.dateOfBirth, true);
     const nationalIdDetails = getNationalIdDetails(userData.id);
-    await this.assertNationalIdAvailable(nationalIdDetails.nationalIdHash);
+    await this.assertNationalIdAvailable(
+      nationalIdDetails.nationalIdHash,
+      parentTransaction,
+    );
     const temporaryPassword = generateTemporaryPassword();
     const passwordHash = await hashPassword(temporaryPassword);
     const temporaryPasswordExpiresAt = getTemporaryPasswordExpiry();
 
     try {
-      const user = await this.sequelize.transaction(async (transaction) => {
+      const createInTransaction = async (transaction: Transaction) => {
         const user = await this.userRepository.create(
           this.normalizeCreateUserData(userData, nationalIdDetails, {
             passwordHash,
@@ -106,7 +124,12 @@ export default class UserService {
           userData.branchId ?? undefined,
         );
         return user;
-      });
+      };
+      // Application approval passes its row-locked outer transaction so a later
+      // evidence/event/update failure also rolls back the new account and role.
+      const user = parentTransaction
+        ? await createInTransaction(parentTransaction)
+        : await this.sequelize.transaction(createInTransaction);
 
       return {
         user,
@@ -140,8 +163,7 @@ export default class UserService {
       mustChangePassword: Boolean(authData?.passwordHash),
       failedLoginAttempts: 0,
       lockedUntil: null,
-      temporaryPasswordExpiresAt:
-        authData?.temporaryPasswordExpiresAt ?? null,
+      temporaryPasswordExpiresAt: authData?.temporaryPasswordExpiresAt ?? null,
       email: userData.email?.trim() || null,
       dateOfBirth: userData.dateOfBirth ?? null,
       shirtSize: userData.shirtSize ?? null,
@@ -171,38 +193,78 @@ export default class UserService {
     }
   }
 
-  public getAllTrainees(
+  public async getAllTrainees(
     branchId?: string,
     includeNotes = false,
     includeNationalIdRevealId = false,
     status: UserListStatus = 'active',
+    includeRegistrationStatus = false,
   ) {
     try {
-      return this.userRepository.getAllTrainees(
+      const trainees = await this.userRepository.getAllTrainees(
         branchId,
         includeNotes,
         includeNationalIdRevealId,
         status,
       );
+      if (
+        !includeRegistrationStatus ||
+        !getBooleanEnv('PARENT_REGISTRATION_ENABLED', false)
+      )
+        return trainees;
+      const summaries = await traineeFormStatuses(this.sequelize, trainees);
+      return trainees.map((trainee) => {
+        const summary = summaries.get(trainee.id);
+        return {
+          ...trainee,
+          parentRegistrationStatus: summary?.status ?? null,
+          parentRegistrationPdf: summary?.pdf ?? null,
+        };
+      });
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
   }
 
-  public getAllVolunteers(
+  public async getAllVolunteers(
     branchId?: string,
     includeNationalIdRevealId = false,
     status: UserListStatus = 'active',
+    includeRegistrationPdf = false,
   ) {
     try {
-      return this.userRepository.getAllVolunteers(
+      const volunteers = await this.userRepository.getAllVolunteers(
         branchId,
         includeNationalIdRevealId,
         status,
       );
+      if (!includeRegistrationPdf) return volunteers;
+      const pdfs = await volunteerApprovedRegistrationPdfs(
+        this.sequelize,
+        volunteers,
+      );
+      return volunteers.map((volunteer) => ({
+        ...volunteer.toJSON(),
+        volunteerRegistrationPdf: pdfs.get(volunteer.id) ?? null,
+      }));
     } catch (err) {
       throw new InternalServerErrorException(err);
     }
+  }
+
+  public promoteVolunteerToBranchAdmin(
+    userId: string,
+    branchId: string,
+    actorId: string,
+  ) {
+    return this.sequelize.transaction((transaction) =>
+      this.userRepository.promoteVolunteerToBranchAdmin(
+        userId,
+        branchId,
+        actorId,
+        transaction,
+      ),
+    );
   }
 
   public countByBranchAndRole(branchId: string, roleId: number) {
@@ -575,9 +637,16 @@ export default class UserService {
     };
   }
 
-  private async assertNationalIdAvailable(nationalIdHash: string) {
-    const existing =
-      await this.userRepository.findByNationalIdHash(nationalIdHash);
+  private async assertNationalIdAvailable(
+    nationalIdHash: string,
+    transaction?: Transaction,
+  ) {
+    const existing = transaction
+      ? await this.userRepository.findByNationalIdHash(
+          nationalIdHash,
+          transaction,
+        )
+      : await this.userRepository.findByNationalIdHash(nationalIdHash);
 
     if (existing) {
       throw new ConflictException('User with this national ID already exists');

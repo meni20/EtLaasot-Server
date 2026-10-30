@@ -316,8 +316,8 @@ describe('AttendeeRepository event pairings', () => {
 describe('EventPairing index contract', () => {
   it('keeps mentor uniqueness and trainee lookup non-unique for active rows', () => {
     const indexes =
-      Reflect.getMetadata('sequelize:options', EventPairing.prototype)?.indexes ??
-      [];
+      Reflect.getMetadata('sequelize:options', EventPairing.prototype)
+        ?.indexes ?? [];
     const mentorIndex = indexes.find(
       (index) => index.name === 'event_pairing_mentor_active_unique',
     );
@@ -344,5 +344,27 @@ describe('EventPairing index contract', () => {
         (index) => index.name === 'event_pairing_trainee_active_unique',
       ),
     ).toBe(false);
+  });
+});
+
+describe('Attendance check-in retry safety', () => {
+  afterEach(() => jest.restoreAllMocks());
+  it('atomically keeps the first attendance actor and timestamp on retry', async () => {
+    let persisted: Record<string, unknown> | undefined;
+    jest
+      .spyOn(Attendee, 'update')
+      .mockImplementation(async (values: any, options: any) => {
+        expect(options.where.id).toBe('attendee');
+        expect(options.where.checkedIn[Op.not]).toBe(true);
+        if (persisted) return [0] as never;
+        persisted = { ...values };
+        return [1] as never;
+      });
+    const repo = new AttendeeRepository();
+    expect(await repo.checkIn('attendee', 'first-admin')).toEqual([1]);
+    const first = persisted;
+    expect(await repo.checkIn('attendee', 'retry-admin')).toEqual([0]);
+    expect(persisted).toBe(first);
+    expect(persisted?.checkedInBy).toBe('first-admin');
   });
 });

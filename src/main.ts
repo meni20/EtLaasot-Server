@@ -1,3 +1,5 @@
+import { RegistrationIntegrationService } from './modules/parent-registration/registration-integration.service';
+import { getBooleanEnv } from './config/env.util';
 import { AppModule, runtimeEnvironment } from './app.module';
 import { NestFactory } from '@nestjs/core';
 import { BadRequestException, ValidationPipe } from '@nestjs/common';
@@ -25,6 +27,9 @@ async function bootstrap() {
     logger: ['log', 'error', 'warn', 'debug', 'verbose'],
   });
 
+  if (getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false))
+    await app.get(RegistrationIntegrationService).attestDocuments();
+
   app.enableCors({
     origin: parseCorsOrigins(),
     credentials: true,
@@ -37,7 +42,7 @@ async function bootstrap() {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       if (durationMs >= 250) {
         console.warn(
-          `[slow-request] ${req.method} ${req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms`,
+          `[slow-request] ${req.method} ${req.path.startsWith('/parent-applications') || req.path.startsWith('/parent-registration') || req.path === '/auth/identify' ? '[registration endpoint]' : req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms`,
         );
       }
     });
@@ -64,10 +69,16 @@ async function bootstrap() {
   );
 
   const port = process.env.PORT ?? 3000;
-  await app.listen(port, '0.0.0.0');
+  const bindHost = getBooleanEnv(
+    'PARENT_REGISTRATION_INTEGRATION_ENABLED',
+    false,
+  ) && !process.env.RAILWAY_ENVIRONMENT_ID
+    ? '127.0.0.1'
+    : '0.0.0.0';
+  await app.listen(port, bindHost);
   console.log(
     `Environment target: ${runtimeEnvironment.target} (branch: ${runtimeEnvironment.branch})`,
   );
-  console.log(`Server running on 0.0.0.0:${port}`);
+  console.log(`Server running on ${bindHost}:${port}`);
 }
 bootstrap();
