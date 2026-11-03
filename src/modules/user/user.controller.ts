@@ -5,6 +5,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  ForbiddenException,
   Get,
   Header,
   Param,
@@ -22,6 +23,7 @@ import { UpdateUserDto } from './dtos/update-user.dto';
 import { ArchiveUserDto } from './dtos/archive-user.dto';
 import { PromoteVolunteerDto } from './dtos/promote-volunteer.dto';
 import { AllowRegistrationAccess } from '../parent-registration/registration-request-access';
+import { AUTH_ROLES } from 'src/constants/auth.constants';
 
 @Controller('user')
 @UseGuards(JwtAuthGuard)
@@ -44,6 +46,7 @@ export default class UserController {
     @Req() req: any,
   ) {
     const allowedFields = [
+      'name',
       'email',
       'phoneNumber',
       'address',
@@ -57,12 +60,20 @@ export default class UserController {
 
     if (unknownFields.length > 0) {
       throw new BadRequestException(
-        'Only email, phoneNumber, address, shirt size and allergies can be updated',
+        'Only name, email, phoneNumber, address, shirt size and allergies can be updated',
       );
     }
 
     if (Object.keys(userData ?? {}).length === 0) {
       throw new BadRequestException('At least one profile field is required');
+    }
+
+    if (
+      Object.prototype.hasOwnProperty.call(userData, 'name') &&
+      !this.authorizationService.hasRole(req.user, AUTH_ROLES.BRANCH_ADMIN.id) &&
+      !this.authorizationService.hasRole(req.user, AUTH_ROLES.SUPER_ADMIN.id)
+    ) {
+      throw new ForbiddenException('Manager role is required to edit own name');
     }
 
     if (
@@ -165,7 +176,9 @@ export default class UserController {
     @Body() input: PromoteVolunteerDto,
     @Req() req: any,
   ) {
-    this.authorizationService.assertSuperAdmin(req.user);
+    // The repository locks the target and verifies its actual branch matches
+    // this authorized branch before making the existing role transition.
+    this.authorizationService.assertAdminForBranch(req.user, input.branchId);
     const actorId = this.authorizationService.getActorId(req.user);
     if (!actorId)
       throw new BadRequestException('Authenticated actor is required');

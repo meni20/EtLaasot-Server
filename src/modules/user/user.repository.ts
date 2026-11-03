@@ -399,6 +399,7 @@ export default class UserRepository {
   public async updateProfile(
     id: string,
     data: {
+      name?: string;
       email?: string | null;
       phoneNumber?: string;
       address?: string | null;
