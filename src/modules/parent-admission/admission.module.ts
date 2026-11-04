@@ -1,4 +1,7 @@
 import { RegistrationIntegrationModule } from '../parent-registration/registration-integration.module';
+import { EmailModule } from '../email/email.module';
+import { WelcomeEmailService } from './welcome.service';
+import { WelcomeController } from './welcome.controller';
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { getBooleanEnv } from '../../config/env.util';
@@ -23,17 +26,20 @@ import {
 
 @Module({
   imports: [
+    EmailModule,
     RegistrationIntegrationModule,
     UserModule,
     AuthorizationModule,
     SequelizeModule.forFeature(ADMISSION_MODELS),
   ],
   controllers: [
+    WelcomeController,
     LoginInitiationController,
     ApplicantController,
     ApplicantAdminController,
   ],
   providers: [
+    WelcomeEmailService,
     AdmissionService,
     AdmissionRepository,
     AdmissionRateLimiter,

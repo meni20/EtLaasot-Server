@@ -50,6 +50,7 @@ export class ApplicationReviewDto {
   @IsString() @Length(1, 2000) reason: string;
 }
 export class ApplicationApprovalDto {
+  @IsOptional() @Transform(({ obj, key }) => obj[key]) @IsBoolean() welcomeEmailConfirmed?: boolean;
   @IsUUID('4') expectedVersionId: string;
   @Transform(({ obj, key }) => obj[key]) @IsBoolean() identityVerified: boolean;
 }
