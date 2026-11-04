@@ -66,10 +66,11 @@ export class RegistrationRequestAccess {
         message: 'Registration access could not be verified',
       });
     }
-    if (!row)
-      throw new ServiceUnavailableException(
-        'Registration access could not be verified',
-      );
+    if (typeof row?.required !== 'boolean')
+      throw new ServiceUnavailableException({
+        code: 'REGISTRATION_STATUS_UNAVAILABLE',
+        message: 'Registration access could not be verified',
+      });
     if (row.required)
       throw new ForbiddenException({
         code: 'PARENT_REGISTRATION_REQUIRED',

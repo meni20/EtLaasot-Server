@@ -44,7 +44,7 @@ async function attest(env) {
     await c.query('BEGIN READ ONLY');
     const r = (
       await c.query(
-        "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_addr()='2a05:d014:8ef:5902:b67d:7199:8fac:e6d0'::inet AND inet_server_port()=5432 AS ok",
+        "SELECT current_database()='postgres' AND current_user='etlaasot_app' AND inet_server_port()=5432 AND NOT (SELECT rolsuper OR rolbypassrls FROM pg_roles WHERE rolname=current_user) AS ok",
       )
     ).rows[0];
     assert.equal(r.ok, true);
