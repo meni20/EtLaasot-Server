@@ -42,7 +42,7 @@ async function bootstrap() {
       const durationMs = Number(process.hrtime.bigint() - startedAt) / 1e6;
       if (durationMs >= 250) {
         console.warn(
-          `[slow-request] ${req.method} ${req.path.startsWith('/parent-applications') || req.path.startsWith('/parent-registration') || req.path === '/auth/identify' ? '[registration endpoint]' : req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms`,
+          `[slow-request] ${req.method} ${req.path.startsWith('/onboarding') || req.path.startsWith('/parent-applications') || req.path.startsWith('/parent-registration') || req.path === '/auth/identify' ? '[registration endpoint]' : req.originalUrl} ${res.statusCode} ${durationMs.toFixed(1)}ms`,
         );
       }
     });

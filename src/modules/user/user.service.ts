@@ -487,6 +487,7 @@ export default class UserService {
   public async updateCurrentUserProfile(
     userId: string,
     data: {
+      name?: string;
       email?: string | null;
       phoneNumber?: string;
       address?: string | null;
@@ -497,6 +498,7 @@ export default class UserService {
   ) {
     try {
       const updateData: {
+        name?: string;
         email?: string | null;
         phoneNumber?: string;
         address?: string | null;
@@ -504,6 +506,10 @@ export default class UserService {
         customShirtSize?: string | null;
         allergies?: string | null;
       } = {};
+
+      if (Object.prototype.hasOwnProperty.call(data, 'name')) {
+        updateData.name = data.name?.trim();
+      }
 
       if (Object.prototype.hasOwnProperty.call(data, 'email')) {
         updateData.email =

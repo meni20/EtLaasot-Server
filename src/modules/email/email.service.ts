@@ -11,6 +11,7 @@ export interface SendEmailInput {
   subject: string;
   text: string;
   html?: string;
+  messageId?: string;
 }
 
 export interface SendEmailResult {
@@ -59,6 +60,7 @@ export class EmailService {
         subject: input.subject,
         text: input.text,
         html: input.html,
+        messageId: input.messageId,
       });
 
       return {
@@ -80,6 +82,10 @@ export class EmailService {
         host: smtpConfig.host,
         port: smtpConfig.port,
         secure: smtpConfig.secure,
+        requireTLS: !smtpConfig.secure,
+        connectionTimeout: 10000,
+        greetingTimeout: 10000,
+        socketTimeout: 30000,
         auth: {
           user: smtpConfig.user,
           pass: smtpConfig.appPassword,
@@ -157,10 +163,8 @@ export class EmailService {
   }
 
   private getSafeErrorMessage(error: unknown): string {
-    if (error instanceof Error && error.message) {
-      return error.message;
-    }
-
-    return 'Unknown SMTP error';
+    const code = (error as { code?: unknown } | null)?.code;
+    return typeof code === 'string' && /^(?:EAUTH|ECONNECTION|ETIMEDOUT|ESOCKET|EDNS|EENVELOPE|EMESSAGE)$/.test(code)
+      ? code : 'SMTP_ERROR';
   }
 }

@@ -383,6 +383,14 @@ export class ApplicantAdminController {
       id,
       input.expectedVersionId,
       input.identityVerified,
+      input.welcomeEmailConfirmed === true,
     );
+  }
+  @Post(':id/welcome-email/retry') async retryWelcome(
+    @Req() req: RegistrationRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) {
+    await this.limits.consume('welcome-retry', String(req.user.userId ?? req.user.sub ?? 'unknown'), id);
+    return this.service.retryWelcome(req.user, id);
   }
 }

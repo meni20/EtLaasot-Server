@@ -1,4 +1,8 @@
 import { volunteerApprovedProfileMapping } from './volunteer-profile.mapping';
+import { AdmissionService } from './admission.service';
+import { AuthorizationService } from '../auth/authorization.service';
+import { admissionPolicy } from './admission.policy';
+import { getNationalIdDetails } from '../user/national-id.util';
 import {
   volunteerRenderRequest,
   VOLUNTEER_TEMPLATE_VERSION,
@@ -18,6 +22,7 @@ import {
   validateVolunteerDraft,
   validateVolunteerSubmission,
   volunteerScopeHash,
+  volunteerContentHash,
   protectVolunteerData,
   readVolunteerData,
 } from './volunteer.validation';
@@ -82,6 +87,43 @@ function complete(minor = false): VolunteerData {
   }
   return data;
 }
+it('volunteer approval enqueues one welcome message in the account transaction; replay never creates credentials or mail', async () => {
+  const original = { ...process.env };
+  const clone = global.structuredClone;
+  try {
+    // Keep JSON fixtures in Jest's VM realm for strict plain-object validation.
+    global.structuredClone = value => JSON.parse(JSON.stringify(value));
+    process.env.VOLUNTEER_REGISTRATION_ENABLED = 'true';
+    process.env.NATIONAL_ID_HASH_SECRET = 'fictional-welcome-volunteer';
+    process.env.NATIONAL_ID_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+    const data = complete(), id = randomUUID(), userId = randomUUID(), actorId = randomUUID();
+    const policy = admissionPolicy('VOLUNTEER'), t = { fictionalOuterTransaction: true };
+    const app: any = { id, branchId: 'fictional-branch', registrationType: 'VOLUNTEER', status: 'PENDING_REVIEW',
+      documentStatus: 'READY', nationalIdHash: getNationalIdDetails(data.volunteer!.nationalId!).nationalIdHash };
+    app.update = jest.fn(async (value: any) => Object.assign(app, value));
+    const latest = { id: randomUUID(), registrationType: 'VOLUNTEER', createdAt: new Date('2026-01-01T12:00:00Z'),
+      formData: protectVolunteerData(data), contentHash: volunteerContentHash(data),
+      templateVersion: VOLUNTEER_TEMPLATE_VERSION, declarationVersion: policy.declarationVersion, declarations: [...policy.declarations] };
+    let created = false;
+    const repo = { transaction: async (work: any) => work(t), application: async () => app,
+      versions: async () => [latest], evidence: async () => [{ kind: 'REGISTRATION_PDF', registrationType: 'VOLUNTEER', versionId: latest.id,
+        contentHash: latest.contentHash, templateVersion: VOLUNTEER_TEMPLATE_VERSION, sourceChecksum: VOLUNTEER_SOURCE_SHA256,
+        generatedAt: new Date(), verifiedAt: new Date(), mimeType: 'application/pdf', fileSize: 100, checksum: 'a'.repeat(64) }],
+      branch: async () => ({ id: app.branchId }), existingIdentity: async () => created ? { id: userId } : null, event: jest.fn() };
+    const users = { createUserWithRole: jest.fn(async () => { created = true; return { user: { id: userId, passwordHash: 'fictional-argon-hash' },
+      temporaryPassword: 'fictional-manual-secret', temporaryPasswordExpiresAt: new Date() }; }) };
+    const integration = { enabled: () => true, attest: jest.fn(), verifyVolunteerSigned: jest.fn(), download: jest.fn() };
+    const welcome = { enqueue: jest.fn(async () => ({ status: 'PENDING' })), status: jest.fn(async () => ({ status: 'PENDING' })) };
+    const service = new AdmissionService(repo as never, new AuthorizationService(), users as never, {} as never, integration as never, welcome as never);
+    const actor = { userId: actorId, roles: [{ roleId: 10000, branchId: app.branchId }] };
+    const result = await service.approve(actor, id, latest.id, true);
+    expect(users.createUserWithRole).toHaveBeenCalledWith(expect.objectContaining({ branchId: app.branchId }), t);
+    expect(welcome.enqueue).toHaveBeenCalledWith(expect.objectContaining({ applicationId: id, userId, email: data.volunteer?.email, authorized: true }), t);
+    expect(result.temporaryPassword).toBe('fictional-manual-secret');
+    expect((await service.approve(actor, id, latest.id, true)).idempotent).toBe(true);
+    expect(welcome.enqueue).toHaveBeenCalledTimes(1); expect(users.createUserWithRole).toHaveBeenCalledTimes(1);
+  } finally { process.env = original; global.structuredClone = clone; }
+});
 describe('Volunteer source, validation and independent signing scopes (offline)', () => {
   it('keeps the portable Client contract byte-identical', () => {
     expect(

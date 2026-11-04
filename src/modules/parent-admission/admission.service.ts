@@ -46,6 +46,7 @@ import {
   type AuthUser,
 } from '../auth/authorization.service';
 import UserService from '../user/user.service';
+import { WelcomeEmailService } from './welcome.service';
 import { getNationalIdDetails } from '../user/national-id.util';
 import { encryptNationalId } from '../user/national-id-encryption.util';
 import {
@@ -78,6 +79,7 @@ export class AdmissionService {
     private readonly users: UserService,
     private readonly evidence: AdmissionEvidenceGateway,
     @Optional() private readonly integration?: RegistrationIntegrationService,
+    @Optional() private readonly welcome?: WelcomeEmailService,
   ) {}
 
   async identify(identifier: string) {
@@ -787,6 +789,7 @@ export class AdmissionService {
     return this.admin(actor, id, async (app, t) => {
       admissionPolicy(app.registrationType).assertAvailable('REVIEW');
       return {
+        welcomeEmail: await this.welcome?.status(app.id, t) ?? { status: 'DISABLED' },
         application: this.summary(app),
         recoveryEligible: app.status !== 'APPROVED' && !app.provisionedUserId,
         branch: await this.repo.branch(app.branchId, t),
@@ -900,6 +903,7 @@ export class AdmissionService {
     id: string,
     expectedVersionId: string,
     identityVerified: boolean,
+    welcomeEmailConfirmed = false,
   ) {
     if (identityVerified !== true)
       throw new BadRequestException(
@@ -993,12 +997,18 @@ export class AdmissionService {
         { transaction: t },
       );
       await this.repo.event(app.id, 'APPROVED', t, this.auth.getActorId(actor));
+      const welcomeEmail = await this.welcome?.enqueue({
+        applicationId: app.id, userId: result.user.id,
+        passwordHash: result.user.passwordHash,
+        email: data.trainee?.email, authorized: welcomeEmailConfirmed,
+      }, t) ?? { status: 'DISABLED' };
       // Return once to the authorized administrator only. Never persist/cache/log.
       return {
         application: this.summary(app),
         userId: result.user.id,
         temporaryPassword: result.temporaryPassword,
         temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
+        welcomeEmail,
       };
     });
   }
@@ -1025,6 +1035,7 @@ export class AdmissionService {
         application: this.summary(app),
         userId: app.provisionedUserId,
         idempotent: true,
+        welcomeEmail: await this.welcome?.status(app.id, t) ?? { status: 'DISABLED' },
       };
     }
     if (app.status !== 'PENDING_REVIEW' || app.documentStatus !== 'READY')
@@ -1112,12 +1123,25 @@ export class AdmissionService {
       this.auth.getActorId(actor),
       latest.id,
     );
+    const welcomeEmail = await this.welcome?.enqueue({
+      applicationId: app.id, userId: result.user.id,
+      passwordHash: result.user.passwordHash,
+      email: data.volunteer?.email, authorized: true,
+    }, t) ?? { status: 'DISABLED' };
     return {
       application: this.summary(app),
       userId: result.user.id,
       temporaryPassword: result.temporaryPassword,
       temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
       idempotent: false,
+      welcomeEmail,
     };
+  }
+  retryWelcome(actor: AuthUser, id: string) {
+    return this.admin(actor, id, async (app, t) => {
+      if (app.status !== 'APPROVED' || !app.provisionedUserId || !this.welcome)
+        throw new ConflictException('Approved account is required');
+      return this.welcome.retry(app.id, this.auth.getActorId(actor)!, t);
+    });
   }
 }

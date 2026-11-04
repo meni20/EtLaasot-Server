@@ -5,10 +5,17 @@ import {
   IsString,
   Matches,
   MaxLength,
+  ValidateIf,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
 
 export class UpdateCurrentUserProfileDto {
+  @ValidateIf((_, value) => value !== undefined)
+  @IsString()
+  @Matches(/\S/)
+  @MaxLength(120)
+  name?: string;
+
   @IsOptional()
   @IsEmail()
   email?: string | null;

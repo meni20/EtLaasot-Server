@@ -483,6 +483,30 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
     expect(users.createTraineeWithRole.mock.calls[0][1]).toBe(t);
     expect(repo.transaction).toHaveBeenCalledTimes(1);
   });
+  it.each([true, false])('enqueues trainee email in the approval transaction with explicit recipient confirmation=%s', async confirmed => {
+    const { version, data } = submitted();
+    app.status = 'PENDING_REVIEW'; app.documentStatus = 'READY';
+    const welcome = { enqueue: jest.fn(async () => ({ status: 'PENDING' })) };
+    const emailApproval = new AdmissionService(repo, new AuthorizationService(), users, evidence, undefined, welcome as never);
+    const result = await emailApproval.approve(actor, app.id, version.id, true, confirmed);
+    expect(welcome.enqueue).toHaveBeenCalledWith(expect.objectContaining({
+      applicationId: app.id, email: data.trainee?.email, authorized: confirmed,
+    }), t);
+    expect(result.welcomeEmail.status).toBe('PENDING');
+    await expect(emailApproval.approve(actor, app.id, version.id, true, confirmed)).rejects.toThrow();
+    expect(welcome.enqueue).toHaveBeenCalledTimes(1);
+  });
+  it('authorizes email retry against the actual application branch without repeating account provisioning', async () => {
+    app.status = 'APPROVED'; app.provisionedUserId = randomUUID();
+    const welcome = { retry: jest.fn(async () => ({ status: 'PENDING' })) };
+    const emails = new AdmissionService(repo, new AuthorizationService(), users, evidence, undefined, welcome as never);
+    await emails.retryWelcome(actor, app.id);
+    expect(welcome.retry).toHaveBeenCalledWith(app.id, actor.userId, t);
+    app.branchId = 'branch-b';
+    await expect(emails.retryWelcome(actor, app.id)).rejects.toThrow();
+    expect(welcome.retry).toHaveBeenCalledTimes(1);
+    expect(users.createTraineeWithRole).not.toHaveBeenCalled();
+  });
   it('HMAC domains differ and the shared limiter atomically denies exhausted counters', async () => {
     expect(credentialHash('session', token)).not.toBe(
       credentialHash('recovery', token),
