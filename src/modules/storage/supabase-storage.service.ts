@@ -2,8 +2,11 @@ import {
   BadRequestException,
   Injectable,
   InternalServerErrorException,
+  Logger,
 } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
+import WebSocket from 'ws';
 import { randomUUID } from 'crypto';
 import { extname } from 'path';
 import { getOptionalEnv, getRequiredEnv } from 'src/config/env.util';
@@ -15,9 +18,15 @@ const ALLOWED_IMAGE_MIME_TYPES = new Set([
 ]);
 const DEFAULT_SUPABASE_URL = 'https://tmlnuqrwhdeplpeuuvwv.supabase.co';
 const DEFAULT_EVENT_IMAGES_BUCKET = 'event-images';
+// Supabase Realtime is initialized with the client even though this service
+// only uses Storage. Node 20 has no native WebSocket, so provide the server
+// transport explicitly instead of relying on the host runtime.
+const NODE_WEBSOCKET_TRANSPORT =
+  WebSocket as unknown as WebSocketLikeConstructor;
 
 @Injectable()
 export class SupabaseStorageService {
+  private readonly logger = new Logger(SupabaseStorageService.name);
   private client?: SupabaseClient;
   private bucket?: string;
   private publicUrlBase?: string | null;
@@ -47,6 +56,7 @@ export class SupabaseStorageService {
       });
 
     if (error) {
+      this.logStorageFailure('event-image-upload', error);
       throw new InternalServerErrorException('Failed to upload event image');
     }
 
@@ -84,6 +94,7 @@ export class SupabaseStorageService {
       });
 
     if (error) {
+      this.logStorageFailure('calendar-background-upload', error);
       throw new InternalServerErrorException(
         'Failed to upload calendar background image',
       );
@@ -102,6 +113,7 @@ export class SupabaseStorageService {
     const { error } = await client.storage.from(bucket).remove([imagePath]);
 
     if (error) {
+      this.logStorageFailure('event-image-delete', error);
       throw new InternalServerErrorException('Failed to delete event image');
     }
   }
@@ -149,9 +161,13 @@ export class SupabaseStorageService {
               persistSession: false,
               autoRefreshToken: false,
             },
+            realtime: {
+              transport: NODE_WEBSOCKET_TRANSPORT,
+            },
           },
         );
-      } catch {
+      } catch (error) {
+        this.logStorageFailure('client-initialization', error);
         throw new InternalServerErrorException(
           'Event image storage is not configured',
         );
@@ -215,5 +231,33 @@ export class SupabaseStorageService {
       default:
         return '';
     }
+  }
+
+  private logStorageFailure(stage: string, error: unknown): void {
+    const record =
+      error && typeof error === 'object'
+        ? (error as Record<string, unknown>)
+        : undefined;
+    const name =
+      error instanceof Error
+        ? error.name
+        : typeof record?.name === 'string'
+          ? record.name
+          : 'UnknownError';
+    const category = [
+      'Error',
+      'TypeError',
+      'StorageError',
+      'StorageApiError',
+      'StorageUnknownError',
+    ].includes(name)
+      ? name
+      : 'UnknownError';
+    const rawStatus = String(record?.statusCode ?? record?.status ?? '');
+    const status = /^[1-5]\d{2}$/.test(rawStatus) ? rawStatus : 'none';
+
+    this.logger.error(
+      `Event image storage failure: stage=${stage} category=${category} status=${status}`,
+    );
   }
 }

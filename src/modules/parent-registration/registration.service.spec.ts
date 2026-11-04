@@ -135,6 +135,31 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
     );
   });
   const submit = () => ({ formId, revision: 2, idempotencyKey: randomUUID() });
+  it.each(['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED'])(
+    'reports registration-only access for a required %s form when blocking is enabled',
+    async (status) => {
+      const old = process.env.PARENT_REGISTRATION_BLOCKING_ENABLED;
+      try {
+        process.env.PARENT_REGISTRATION_BLOCKING_ENABLED = 'true';
+        form.status = status;
+        annual = null;
+        expect(await service.status(actors.trainee)).toMatchObject({
+          registrationRequired: true,
+          accessBlocked: true,
+        });
+        // Approved forms are excluded by RegistrationRepository.active().
+        repo.active.mockResolvedValue(null);
+        expect(await service.status(actors.trainee)).toMatchObject({
+          registrationRequired: false,
+          accessBlocked: false,
+        });
+      } finally {
+        if (old === undefined)
+          delete process.env.PARENT_REGISTRATION_BLOCKING_ENABLED;
+        else process.env.PARENT_REGISTRATION_BLOCKING_ENABLED = old;
+      }
+    },
+  );
   it('derives self identity from auth and rejects volunteers', async () => {
     await service.status(actors.trainee);
     expect(repo.lockTrainee).toHaveBeenCalledWith(trainee, expect.anything());

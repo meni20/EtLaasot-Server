@@ -175,3 +175,55 @@ describe('EventService assignment email wording', () => {
     ]);
   });
 });
+
+describe('EventService image replacement', () => {
+  it('stores the replacement before updating the event and then removes the old image', async () => {
+    const calls: string[] = [];
+    const eventRepository = {
+      findById: jest.fn(async () => ({ imagePath: 'events/event-1/old.png' })),
+      updateImagePath: jest.fn(async (_eventId: string, imagePath: string) => ({
+        toJSON: () => ({ id: 'event-1', imagePath }),
+      })),
+    };
+    const storage = {
+      uploadEventImage: jest.fn(async () => {
+        calls.push('upload');
+        return 'events/event-1/new.png';
+      }),
+      deleteEventImage: jest.fn(async () => {
+        calls.push('delete-old');
+      }),
+      getPublicUrl: jest.fn(() => 'https://example/image.png'),
+    };
+    eventRepository.updateImagePath.mockImplementation(
+      async (_eventId: string, imagePath: string) => {
+        calls.push('update-database');
+        return { toJSON: () => ({ id: 'event-1', imagePath }) };
+      },
+    );
+    const service = new EventService(
+      eventRepository as any,
+      {} as any,
+      storage as any,
+      {} as any,
+      {} as any,
+      {} as any,
+    );
+
+    const result = await service.uploadEventImage('event-1', {
+      buffer: Buffer.from('replacement'),
+      mimetype: 'image/png',
+      originalname: 'replacement.png',
+    } as Express.Multer.File);
+
+    expect(calls).toEqual(['upload', 'update-database', 'delete-old']);
+    expect(storage.deleteEventImage).toHaveBeenCalledWith(
+      'events/event-1/old.png',
+    );
+    expect(result).toMatchObject({
+      id: 'event-1',
+      imagePath: 'events/event-1/new.png',
+      imageUrl: 'https://example/image.png',
+    });
+  });
+});

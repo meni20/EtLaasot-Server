@@ -94,6 +94,33 @@ describe('Live renewal enforcement without cached JWT decisions (offline)', () =
       response: { code: 'REGISTRATION_STATUS_UNAVAILABLE' },
     });
   });
+  it.each([
+    { rows: [] },
+    { rows: [{}] },
+    { rows: [{ required: null }] },
+    { rows: [{ required: 'false' }] },
+  ])(
+    'fails closed for missing or malformed access results %j',
+    async ({ rows }) => {
+      db.query.mockResolvedValue(rows);
+      await expect(access.assertRequest(context())).rejects.toMatchObject({
+        response: { code: 'REGISTRATION_STATUS_UNAVAILABLE' },
+      });
+    },
+  );
+  it('blocks drafts, submissions and corrections until approval, checking the database each time', async () => {
+    for (const state of ['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED']) {
+      db.query.mockResolvedValue([{ required: true }]);
+      await expect(access.assertRequest(context())).rejects.toMatchObject({
+        status: 403,
+        response: { code: 'PARENT_REGISTRATION_REQUIRED' },
+      });
+      expect(db.query.mock.calls.at(-1)[0]).toContain(`'${state}'`);
+    }
+    db.query.mockResolvedValue([{ required: false }]);
+    await expect(access.assertRequest(context())).resolves.toBeUndefined();
+    expect(db.query).toHaveBeenCalledTimes(4);
+  });
   it('does not query Phase 4 tables before the explicit schema-ready marker', async () => {
     await access.assertRequest(context());
     expect(db.query.mock.calls[0][0]).not.toContain('trainee_applications');
