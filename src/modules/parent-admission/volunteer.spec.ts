@@ -120,7 +120,7 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
     expect(users.createUserWithRole).toHaveBeenCalledWith(expect.objectContaining({ branchId: app.branchId }), t);
     expect(welcome.enqueue).toHaveBeenCalledWith(expect.objectContaining({ applicationId: id, userId, email: data.volunteer?.email, authorized: true }), t);
     expect(result.temporaryPassword).toBe('fictional-manual-secret');
-    expect((await service.approve(actor, id, latest.id, true)).idempotent).toBe(true);
+    expect(await service.approve(actor, id, latest.id, true)).toMatchObject({ idempotent: true });
     expect(welcome.enqueue).toHaveBeenCalledTimes(1); expect(users.createUserWithRole).toHaveBeenCalledTimes(1);
   } finally { process.env = original; global.structuredClone = clone; }
 });
