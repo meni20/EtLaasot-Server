@@ -47,6 +47,7 @@ import {
 } from '../auth/authorization.service';
 import UserService from '../user/user.service';
 import { WelcomeEmailService } from './welcome.service';
+import { DraftDeletionService } from './draft-deletion.service';
 import { getNationalIdDetails } from '../user/national-id.util';
 import { encryptNationalId } from '../user/national-id-encryption.util';
 import {
@@ -80,6 +81,7 @@ export class AdmissionService {
     private readonly evidence: AdmissionEvidenceGateway,
     @Optional() private readonly integration?: RegistrationIntegrationService,
     @Optional() private readonly welcome?: WelcomeEmailService,
+    @Optional() private readonly deletion?: DraftDeletionService,
   ) {}
 
   async identify(identifier: string) {
@@ -177,6 +179,7 @@ export class AdmissionService {
       branchId: app.branchId,
       status: app.status,
       revision: app.revision,
+      deletionPending: !!app.deletionRequestedAt,
       currentStep: app.currentStep,
       documentStatus: app.documentStatus,
       feedbackReason: app.feedbackReason ?? null,
@@ -792,6 +795,7 @@ export class AdmissionService {
         welcomeEmail: await this.welcome?.status(app.id, t) ?? { status: 'DISABLED' },
         application: this.summary(app),
         recoveryEligible: app.status !== 'APPROVED' && !app.provisionedUserId,
+        canDeleteDraft: app.status === 'DRAFT' && !!(await this.deletion?.eligible(app.id, actor)),
         branch: await this.repo.branch(app.branchId, t),
         history: (await this.repo.events(app.id, t)).map((e) => ({
           id: e.id,

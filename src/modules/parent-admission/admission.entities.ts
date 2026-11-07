@@ -25,6 +25,7 @@ export class TraineeApplication extends Model {
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
   declare id: string;
+  @Column(DataType.DATE) declare deletionRequestedAt: Date | null;
   @Column(DataType.STRING(64)) declare nationalIdHash: string;
   @Column(DataType.TEXT) declare nationalIdEncrypted: string;
   @Column(DataType.STRING(50)) declare branchId: string;

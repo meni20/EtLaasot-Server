@@ -34,6 +34,7 @@ import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import type { RegistrationRequest } from '../parent-registration/registration.guard';
 import { RegistrationErrorInterceptor } from '../parent-registration/registration.guard';
 import { AdmissionService } from './admission.service';
+import { DraftDeletionService } from './draft-deletion.service';
 import {
   AdmissionRateLimiter,
   normalizeRecoveryCode,
@@ -42,6 +43,7 @@ import {
 import { getNationalIdDetails } from '../user/national-id.util';
 import {
   ApplicationApprovalDto,
+  DeleteDraftDto,
   ApplicationDraftDto,
   ApplicationListDto,
   ApplicationReviewDto,
@@ -281,7 +283,20 @@ export class ApplicantAdminController {
   constructor(
     private readonly service: AdmissionService,
     private readonly limits: AdmissionRateLimiter,
+    private readonly deletion: DraftDeletionService,
   ) {}
+  @Post(':id/delete-draft') async deleteDraft(
+    @Req() req: RegistrationRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() input: DeleteDraftDto,
+  ) {
+    await this.limits.consume('delete-draft', String(req.user.userId ?? req.user.sub ?? 'unknown'), id);
+    return this.deletion.begin(id, req.user, input.expectedRevision);
+  }
+  @Get(':id/draft-deletion') deletionStatus(
+    @Req() req: RegistrationRequest,
+    @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,
+  ) { return this.deletion.status(id, req.user); }
   @Post(':id/recovery-code/reissue') async reissueRecoveryCode(
     @Req() req: RegistrationRequest,
     @Param('id', new ParseUUIDPipe({ version: '4' })) id: string,

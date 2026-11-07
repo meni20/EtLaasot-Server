@@ -3,6 +3,7 @@ import {
   Injectable,
   NotFoundException,
   UnauthorizedException,
+  ConflictException,
 } from '@nestjs/common';
 import { InjectConnection } from '@nestjs/sequelize';
 import { Sequelize } from 'sequelize-typescript';
@@ -90,6 +91,8 @@ export class AdmissionRepository {
       lock: t.LOCK.UPDATE,
     });
     if (!row) throw new NotFoundException('Application not found');
+    if (row.deletionRequestedAt)
+      throw new ConflictException('Draft deletion is pending; access cannot be restored');
     return row;
   }
   versions(applicationId: string, t: Transaction) {
@@ -172,6 +175,7 @@ export class AdmissionRepository {
         'status',
         'draftData',
         'revision',
+        'deletionRequestedAt',
         'currentStep',
         'feedbackReason',
         'documentStatus',

@@ -226,6 +226,37 @@ export class RegistrationIntegrationService {
       this.fail('storage-bucket-metadata');
     return { name, store: this.client.storage.from(name) };
   }
+  async eraseUnsubmittedDraftFiles(id: string) {
+    if (!isUUID(id, '4')) this.fail('draft-erasure-owner');
+    await this.attest();
+    const { store } = await this.bucket();
+    const prefix = `registration/application/${id}`;
+    const paths: string[] = [];
+    const visit = async (folder: string, depth: number) => {
+      if (depth > 4 || (folder !== prefix && !folder.startsWith(prefix + '/'))) this.fail('draft-erasure-path');
+      for (let offset = 0; ; offset += 100) {
+        const { data, error } = await store.list(folder, { limit: 100, offset, sortBy: { column: 'name', order: 'asc' } });
+        if (error || !data) this.fail('draft-erasure-list');
+        for (const item of data) {
+          if (!item.name || /[\\/]/.test(item.name) || item.name === '..' || item.name === '.') this.fail('draft-erasure-path');
+          const path = `${folder}/${item.name}`;
+          if (item.id) paths.push(path);
+          else await visit(path, depth + 1);
+          if (paths.length > 10000) this.fail('draft-erasure-limit');
+        }
+        if (data.length < 100) break;
+      }
+    };
+    // Include orphan uploads, not just evidence rows. List before removal so
+    // pagination cannot skip objects when earlier pages shrink.
+    await visit(prefix, 0);
+    for (let i = 0; i < paths.length; i += 100) {
+      const { error } = await store.remove(paths.slice(i, i + 100));
+      if (error) this.fail('draft-erasure-remove');
+    }
+    const remaining = await store.list(prefix, { limit: 1 });
+    if (remaining.error || !remaining.data || remaining.data.length) this.fail('draft-erasure-verification');
+  }
   async inspect(bytes: Buffer, kind: Kind) {
     if (!bytes?.length || bytes.length > MAX)
       throw new BadRequestException('Empty or oversized attachment');
