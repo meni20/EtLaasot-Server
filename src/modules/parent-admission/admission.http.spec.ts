@@ -14,6 +14,7 @@ import {
 } from './admission.controller';
 import { AdmissionService } from './admission.service';
 import { AdmissionRateLimiter } from './admission.security';
+import { DraftDeletionService } from './draft-deletion.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { RegistrationErrorInterceptor } from '../parent-registration/registration.guard';
 
@@ -60,6 +61,7 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
         RegistrationErrorInterceptor,
         { provide: AdmissionService, useValue: service },
         { provide: AdmissionRateLimiter, useValue: limits },
+        { provide: DraftDeletionService, useValue: { begin: jest.fn(async () => ({ status: 'PENDING' })), status: jest.fn() } },
       ],
     })
       .overrideGuard(JwtAuthGuard)
@@ -88,6 +90,19 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
     await app.init();
   });
   beforeEach(() => jest.clearAllMocks());
+  it.each([false, 'true', 'false', 1, null])('rejects non-explicit draft deletion confirmation %s', async (confirmed) => {
+    await request(app.getHttpServer())
+      .post('/parent-applications/admin/00000000-0000-4000-8000-000000000001/delete-draft')
+      .set('Authorization', 'Bearer fictional-admin')
+      .send({ expectedRevision: 0, confirmed })
+      .expect(400);
+  });
+  it('requires authentication for draft deletion', async () => {
+    await request(app.getHttpServer())
+      .post('/parent-applications/admin/00000000-0000-4000-8000-000000000001/delete-draft')
+      .send({ expectedRevision: 0, confirmed: true })
+      .expect(401);
+  });
   afterAll(async () => {
     await app.close();
     process.env = original;

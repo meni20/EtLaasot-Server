@@ -11,8 +11,13 @@ import {
   Max,
   Min,
   Matches,
+  Equals,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
+export class DeleteDraftDto {
+  @IsInt() @Min(0) expectedRevision: number;
+  @Transform(({ obj, key }) => obj[key]) @IsBoolean() @Equals(true) confirmed: boolean;
+}
 import type { ApplicationFormData } from './admission.policy';
 import {
   normalizeRecoveryCode,

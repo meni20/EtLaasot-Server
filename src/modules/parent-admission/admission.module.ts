@@ -2,6 +2,7 @@ import { RegistrationIntegrationModule } from '../parent-registration/registrati
 import { EmailModule } from '../email/email.module';
 import { WelcomeEmailService } from './welcome.service';
 import { WelcomeController } from './welcome.controller';
+import { DraftDeletionService } from './draft-deletion.service';
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { getBooleanEnv } from '../../config/env.util';
@@ -39,6 +40,7 @@ import {
     ApplicantAdminController,
   ],
   providers: [
+    DraftDeletionService,
     WelcomeEmailService,
     AdmissionService,
     AdmissionRepository,

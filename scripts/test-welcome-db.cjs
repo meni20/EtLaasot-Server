@@ -4,6 +4,8 @@ const fs = require('fs'),
   { randomBytes } = require('crypto');
 const { spawnSync } = require('child_process');
 const root = path.resolve(__dirname, '..');
+const suite = process.argv[2] ?? 'welcome';
+if (!['welcome', 'draft-deletion'].includes(suite)) throw Error('Unknown isolated registration test suite');
 const bin =
   process.env.ONBOARDING_PG_BIN || 'C:/Program Files/PostgreSQL/17/bin';
 const exe = (name) =>
@@ -72,7 +74,7 @@ try {
       'node_modules/jest/bin/jest.js',
       '--runInBand',
       '--runTestsByPath',
-      'src/modules/parent-admission/welcome.integration.spec.ts',
+      suite === 'welcome' ? 'src/modules/parent-admission/welcome.integration.spec.ts' : 'src/modules/parent-admission/draft-deletion.integration.spec.ts',
     ],
     { cwd: root, env, windowsHide: true, stdio: 'inherit' },
   );
