@@ -16,6 +16,8 @@
     "start:debug": "nest start --debug --watch",
     "start:prod": "node dist/main",
     "lint": "eslint \"{src,apps,libs,test}/**/*.ts\" --fix",
+    "lint:applicant-credentials": "eslint --config scripts/eslint-application-credentials.config.mjs \"src/modules/parent-admission/application-credentials*.ts\"",
+    "test:applicant-credentials": "npm run test -- --runInBand src/modules/parent-admission/application-credentials.spec.ts src/modules/parent-admission/application-credentials.http.spec.ts src/modules/parent-admission/application-credentials.migration.spec.ts",
     "test": "node --experimental-vm-modules node_modules/jest/bin/jest.js",
     "test:watch": "npm run test -- --watch",
     "test:cov": "npm run test -- --coverage",

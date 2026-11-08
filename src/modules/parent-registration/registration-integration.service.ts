@@ -636,6 +636,8 @@ export class RegistrationIntegrationService {
         if (!version || version.registrationType !== 'VOLUNTEER')
           throw new ConflictException('Submitted volunteer version is missing');
         versionId = version.id;
+        if (!app.branchId)
+          throw new ConflictException('Registration branch is missing');
         const branch = await Branch.findByPk(app.branchId, { transaction: t });
         if (!branch)
           throw new ConflictException('Registration branch is missing');
@@ -963,6 +965,8 @@ export class RegistrationIntegrationService {
                 )
               ).toString('base64');
         }
+        if (!owner.branchId)
+          throw new ConflictException('Registration branch is missing');
         const branch = await Branch.findByPk(owner.branchId, {
           transaction: t,
         });

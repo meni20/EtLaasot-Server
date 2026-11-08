@@ -3,6 +3,12 @@ import { EmailModule } from '../email/email.module';
 import { WelcomeEmailService } from './welcome.service';
 import { WelcomeController } from './welcome.controller';
 import { DraftDeletionService } from './draft-deletion.service';
+import { ApplicationCredentialsRepository } from './application-credentials.repository';
+import { ApplicationCredentialsService } from './application-credentials.service';
+import {
+  ApplicationCredentialsController,
+  ApplicantPasswordGuard,
+} from './application-credentials.controller';
 import { Module } from '@nestjs/common';
 import { SequelizeModule } from '@nestjs/sequelize';
 import { getBooleanEnv } from '../../config/env.util';
@@ -34,12 +40,16 @@ import {
     SequelizeModule.forFeature(ADMISSION_MODELS),
   ],
   controllers: [
+    ApplicationCredentialsController,
     WelcomeController,
     LoginInitiationController,
     ApplicantController,
     ApplicantAdminController,
   ],
   providers: [
+    ApplicationCredentialsRepository,
+    ApplicationCredentialsService,
+    ApplicantPasswordGuard,
     DraftDeletionService,
     WelcomeEmailService,
     AdmissionService,

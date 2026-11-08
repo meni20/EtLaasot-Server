@@ -28,7 +28,7 @@ export class TraineeApplication extends Model {
   @Column(DataType.DATE) declare deletionRequestedAt: Date | null;
   @Column(DataType.STRING(64)) declare nationalIdHash: string;
   @Column(DataType.TEXT) declare nationalIdEncrypted: string;
-  @Column(DataType.STRING(50)) declare branchId: string;
+  @Column(DataType.STRING(50)) declare branchId: string | null;
   @Column(DataType.STRING(24)) declare status: string;
   @Column(DataType.JSONB)
   declare draftData: ApplicationFormData<RegistrationType>;
@@ -45,9 +45,9 @@ export class TraineeApplication extends Model {
 export class ApplicantSession extends Model {
   @PrimaryKey @Column(DataType.UUID) declare applicationId: string;
   @Column(DataType.STRING(64)) declare tokenHash: string;
-  @Column(DataType.STRING(64)) declare recoveryHash: string;
+  @Column(DataType.STRING(64)) declare recoveryHash: string | null;
   @Column(DataType.DATE) declare expiresAt: Date;
-  @Column(DataType.DATE) declare recoveryExpiresAt: Date;
+  @Column(DataType.DATE) declare recoveryExpiresAt: Date | null;
   @Column(DataType.DATE) declare revokedAt: Date | null;
 }
 @Table({
