@@ -46,7 +46,8 @@ export class AdmissionRepository {
       order: [['name', 'ASC']],
     });
   }
-  branch(id: string, t: Transaction) {
+  branch(id: string | null, t: Transaction) {
+    if (!id) return Promise.resolve(null);
     return Branch.findOne({
       where: { id, isActive: true },
       transaction: t,

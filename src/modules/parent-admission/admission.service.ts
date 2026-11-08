@@ -234,6 +234,7 @@ export class AdmissionService {
     const hash = credentialHash('recovery', recoveryCode);
     return this.repo.transaction(async (t) => {
       const session = await this.repo.session(hash, true, t);
+      if (!session.recoveryExpiresAt) throw new NotFoundException();
       const app = await this.repo.application(session.applicationId, t);
       const { token, recoveryCode: nextCode, ...stored } = this.credentials();
       stored.recoveryExpiresAt = session.recoveryExpiresAt;
@@ -262,6 +263,7 @@ export class AdmissionService {
     return this.repo.transaction(async (t) => {
       const session = await this.repo.sessionForReissue(id, t);
       const app = await this.repo.application(id, t);
+      if (!app.branchId) throw new NotFoundException();
       this.auth.assertAdminForBranch(actor, app.branchId);
       const managerId = this.auth.getActorId(actor);
       if (!managerId) throw new NotFoundException();
@@ -742,6 +744,7 @@ export class AdmissionService {
   ) {
     return this.repo.transaction(async (t) => {
       const app = await this.repo.application(id, t);
+      if (!app.branchId) throw new NotFoundException();
       this.auth.assertAdminForBranch(actor, app.branchId);
       if (this.integration?.enabled()) {
         await this.integration.attest(t);
