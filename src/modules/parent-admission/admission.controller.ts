@@ -157,7 +157,7 @@ export class LoginInitiationController {
     const started = Date.now(),
       minimum = 250 + randomInt(0, 51);
     try {
-      return await this.service.identify(input.identifier);
+      return await this.service.identify(input.identifier, input.flow === 'PASSWORD');
     } finally {
       await new Promise((resolve) =>
         setTimeout(resolve, Math.max(0, minimum - (Date.now() - started))),

@@ -53,7 +53,7 @@ export default class UserRepository {
   }
 
   public async create(userData: IUser, transaction?: Transaction) {
-    return await User.create(userData, { transaction });
+    return await User.create(userData, { transaction, logging: false });
   }
 
   public async getAllUsers(

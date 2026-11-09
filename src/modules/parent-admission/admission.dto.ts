@@ -25,6 +25,7 @@ import {
 } from './admission.security';
 export class IdentifyDto {
   @IsString() @Length(5, 9) identifier: string;
+  @IsOptional() @IsIn(['PASSWORD']) flow?: 'PASSWORD';
 }
 export class StartApplicationDto extends IdentifyDto {
   @IsIn(REGISTRATION_TYPES) registrationType: RegistrationType = 'TRAINEE';
@@ -42,6 +43,8 @@ export class ReissueRecoveryCodeDto {
   @Transform(({ obj, key }) => obj[key]) @IsBoolean() identityVerified: boolean;
 }
 export class ApplicationDraftDto {
+  @Transform(({ obj, key }) => obj[key])
+  @IsOptional() @IsString() @Length(1, 50) branchId?: string | null;
   @IsInt() @Min(0) revision: number;
   @IsInt() @Min(1) @Max(5) currentStep: number;
   @IsObject() data: ApplicationFormData<RegistrationType>;

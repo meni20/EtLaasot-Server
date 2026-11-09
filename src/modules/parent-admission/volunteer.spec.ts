@@ -105,7 +105,7 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
       formData: protectVolunteerData(data), contentHash: volunteerContentHash(data),
       templateVersion: VOLUNTEER_TEMPLATE_VERSION, declarationVersion: policy.declarationVersion, declarations: [...policy.declarations] };
     let created = false;
-    const repo = { transaction: async (work: any) => work(t), application: async () => app,
+    const repo = { lockApplicantSession: jest.fn(), transaction: async (work: any) => work(t), application: async () => app,
       versions: async () => [latest], evidence: async () => [{ kind: 'REGISTRATION_PDF', registrationType: 'VOLUNTEER', versionId: latest.id,
         contentHash: latest.contentHash, templateVersion: VOLUNTEER_TEMPLATE_VERSION, sourceChecksum: VOLUNTEER_SOURCE_SHA256,
         generatedAt: new Date(), verifiedAt: new Date(), mimeType: 'application/pdf', fileSize: 100, checksum: 'a'.repeat(64) }],

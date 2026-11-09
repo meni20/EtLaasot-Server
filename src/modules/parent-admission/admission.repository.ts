@@ -39,6 +39,57 @@ export class AdmissionRepository {
       transaction: t,
     });
   }
+  existingApplication(nationalIdHash: string) {
+    return TraineeApplication.findOne({
+      where: { nationalIdHash },
+      attributes: ['id'],
+    });
+  }
+  async hasPasswordCredentials(nationalIdHash: string) {
+    const [row] = await this.db.query<{ exists: boolean }>(
+      'SELECT EXISTS(SELECT 1 FROM public.application_credentials WHERE national_id_hash=:hash) AS exists',
+      {
+        replacements: { hash: nationalIdHash },
+        type: QueryTypes.SELECT,
+        logging: false,
+      },
+    );
+    return row.exists;
+  }
+  async approvalCredential(
+    applicationId: string,
+    nationalIdHash: string,
+    t: Transaction,
+  ) {
+    // Session/application locks protect the approval against login and replays.
+    // The 039 user trigger serializes identity writers and validates this same hash.
+    const [row] = await this.db.query<{
+      passwordHash: string;
+      loginEmail: string;
+    }>(
+      `SELECT password_hash AS "passwordHash",login_email AS "loginEmail"
+       FROM public.application_credentials WHERE application_id=:applicationId AND national_id_hash=:nationalIdHash`,
+      {
+        replacements: { applicationId, nationalIdHash },
+        type: QueryTypes.SELECT,
+        transaction: t,
+        logging: false,
+      },
+    );
+    return row;
+  }
+  async lockApplicantSession(applicationId: string, t: Transaction) {
+    await ApplicantSession.findByPk(applicationId, {
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+  }
+  async revokeApplicantSessions(applicationId: string, t: Transaction) {
+    await ApplicantSession.update(
+      { revokedAt: new Date() },
+      { where: { applicationId }, transaction: t, logging: false },
+    );
+  }
   branches() {
     return Branch.findAll({
       where: { isActive: true },
@@ -93,7 +144,9 @@ export class AdmissionRepository {
     });
     if (!row) throw new NotFoundException('Application not found');
     if (row.deletionRequestedAt)
-      throw new ConflictException('Draft deletion is pending; access cannot be restored');
+      throw new ConflictException(
+        'Draft deletion is pending; access cannot be restored',
+      );
     return row;
   }
   versions(applicationId: string, t: Transaction) {
