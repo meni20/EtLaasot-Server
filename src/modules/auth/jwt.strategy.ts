@@ -33,11 +33,15 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub?: string }) {
+  async validate(payload: { sub?: string; sessionVersion?: number }) {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token');
     }
 
+    await this.authService.assertSessionCurrent(
+      payload.sub,
+      payload.sessionVersion,
+    );
     const user = await this.authService.getMe(payload.sub);
 
     return {

@@ -1,3 +1,7 @@
+import { AUTH_ROLES } from '../../constants/auth.constants';
+import { PasswordRecoveryService } from './password-recovery.service';
+import { ApplicationCredentialsService } from './application-credentials.service';
+import * as applicantFeature from './application-credentials.feature';
 // Real services/repositories/ORM and PostgreSQL. Only evidence storage and SMTP are synthetic.
 import 'reflect-metadata';
 import fs from 'fs';
@@ -122,6 +126,7 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
     aclBefore: any,
     aclAfter: any;
   let next = 30000;
+  let recoveryPreserved = false;
   const saved = { ...process.env },
     clone = global.structuredClone;
   const q = <T extends object = any>(
@@ -274,6 +279,16 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
     );
     preserved = JSON.stringify(snapshot) === JSON.stringify(after);
     aclAfter = await security();
+    await owner.transaction((t) =>
+      owner.query(
+        fs.readFileSync('migrations/041_password_recovery.sql', 'utf8'),
+        { transaction: t, logging: false },
+      ),
+    );
+    const afterRecovery = await q(
+      `SELECT (SELECT jsonb_agg(to_jsonb(d)-'delivery_kind' ORDER BY id) FROM public.onboarding_deliveries d) deliveries,(SELECT jsonb_agg(to_jsonb(a) ORDER BY id) FROM public.trainee_applications a) applications,(SELECT jsonb_agg(to_jsonb(u) ORDER BY id) FROM public."user" u) users`,
+    );
+    recoveryPreserved = JSON.stringify(afterRecovery) === JSON.stringify(after);
     db = new Sequelize({
       dialect: 'postgres',
       host: '127.0.0.1',
@@ -294,9 +309,9 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
         const file = path.join(dir, f.name);
         if (f.isDirectory()) visit(file);
         else if (f.name.endsWith('.entity.ts'))
-            // Discover existing ORM models without importing AppModule or runtime environments.
-            // eslint-disable-next-line @typescript-eslint/no-require-imports
-            for (const m of Object.values(require(file)))
+          // Discover existing ORM models without importing AppModule or runtime environments.
+          // eslint-disable-next-line @typescript-eslint/no-require-imports
+          for (const m of Object.values(require(file)))
             if (typeof m === 'function' && m.prototype instanceof Model)
               models.push(m);
       }
@@ -335,7 +350,11 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
     process.env = saved;
     global.structuredClone = clone;
   });
-  async function pending(type: 'TRAINEE' | 'VOLUNTEER', legacy = false) {
+  async function pending(
+    type: 'TRAINEE' | 'VOLUNTEER',
+    legacy = false,
+    signup = false,
+  ) {
     const nationalId = identifier(),
       data: any =
         type === 'TRAINEE' ? fictionalRegistration(false) : complete(),
@@ -356,14 +375,42 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
           purpose,
         );
     if (type === 'VOLUNTEER') hash = volunteerContentHash(data);
-    const identity = getNationalIdDetails(nationalId),
+    const identity = getNationalIdDetails(nationalId);
+    let app: TraineeApplication;
+    let signupToken: string | undefined;
+    if (signup) {
+      const enabled = jest
+        .spyOn(applicantFeature, 'assertApplicantPasswordFeature')
+        .mockImplementation(() => {});
+      try {
+        const result = await new ApplicationCredentialsService(
+          new ApplicationCredentialsRepository(db),
+          repo,
+        ).signup({
+          identifier: nationalId,
+          email: 'family@example.test',
+          password: 'Applicant!2345',
+          passwordConfirmation: 'Applicant!2345',
+          registrationType: type,
+        });
+        signupToken = result.token;
+        const [created] = await q(
+          'SELECT id FROM public.trainee_applications WHERE national_id_hash=:hash',
+          { hash: identity.nationalIdHash },
+        );
+        app = (await TraineeApplication.findByPk(created.id))!;
+        await app.update({ branchId: 'a' });
+      } finally {
+        enabled.mockRestore();
+      }
+    } else
       app = await TraineeApplication.create({
         nationalIdHash: identity.nationalIdHash,
         nationalIdEncrypted: 'synthetic',
         branchId: 'a',
         registrationType: type,
       });
-    if (!legacy)
+    if (!legacy && !signup)
       await db.transaction((t) =>
         new ApplicationCredentialsRepository(db).create(
           {
@@ -375,15 +422,16 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
           t,
         ),
       );
-    await ApplicantSession.create({
-      applicationId: app.id,
-      tokenHash: credentialHash('session', token),
-      expiresAt: new Date(Date.now() + 86400000),
-      recoveryHash: legacy
-        ? credentialHash('recovery', applicantToken())
-        : null,
-      recoveryExpiresAt: legacy ? new Date(Date.now() + 86400000 * 90) : null,
-    });
+    if (!signup)
+      await ApplicantSession.create({
+        applicationId: app.id,
+        tokenHash: credentialHash('session', token),
+        expiresAt: new Date(Date.now() + 86400000),
+        recoveryHash: legacy
+          ? credentialHash('recovery', applicantToken())
+          : null,
+        recoveryExpiresAt: legacy ? new Date(Date.now() + 86400000 * 90) : null,
+      });
     const policy = admissionPolicy(type),
       v = await ApplicationVersion.create({
         applicationId: app.id,
@@ -443,8 +491,23 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
         type === 'TRAINEE' ? protectData(data) : protectVolunteerData(data),
     });
     const approve = () => service.approve(admin, app.id, v.id, true, true);
-    return { app, data, hash, token, identity, nationalId, v, approve };
+    return {
+      app,
+      data,
+      hash,
+      token: signupToken ?? token,
+      identity,
+      nationalId,
+      v,
+      approve,
+    };
   }
+  it('041 is additive and preserves every existing application, account and delivery payload', () => {
+    expect(recoveryPreserved).toBe(true);
+    expect(
+      fs.readFileSync('migrations/041_password_recovery.sql', 'utf8'),
+    ).not.toMatch(/\b(?:DELETE FROM|UPDATE public|TRUNCATE|DROP TABLE)\b/i);
+  });
   it('040 preserves every legacy delivery payload/state, applications and existing accounts', () => {
     expect(preserved).toBe(true);
   });
@@ -740,11 +803,332 @@ isolated('Phase 2+3 fresh PostgreSQL verification (no cloud)', () => {
       token_hash: null,
     });
   });
+  function recovery() {
+    return new PasswordRecoveryService(
+      db,
+      { sendEmail: mail } as never,
+      new AuthorizationService(),
+    );
+  }
+  async function authorizeReset(h: Awaited<ReturnType<typeof pending>>) {
+    await recovery().authorize(admin, {
+      subjectType: 'APPLICATION',
+      subjectId: h.app.id,
+      identityVerified: true,
+      emailConfirmed: true,
+      email: 'family@example.test',
+    });
+  }
+  function resetToken() {
+    const text = mail.mock.calls.at(-1)?.[0].text ?? '';
+    return text.match(/#token=([A-Za-z0-9_-]{43})/)?.[1] as string;
+  }
+  it('unverified email cannot initiate reset; independent identity and matching mailbox are mandatory', async () => {
+    const h = await pending('TRAINEE');
+    mail.mockClear();
+    const r = recovery();
+    expect(await r.request(h.nationalId)).toEqual({ ok: true });
+    expect(mail).not.toHaveBeenCalled();
+    await expect(
+      r.authorize(admin, {
+        subjectType: 'APPLICATION',
+        subjectId: h.app.id,
+        identityVerified: false,
+        emailConfirmed: true,
+        email: 'family@example.test',
+      }),
+    ).rejects.toThrow('Independent');
+    await expect(
+      r.authorize(admin, {
+        subjectType: 'APPLICATION',
+        subjectId: h.app.id,
+        identityVerified: true,
+        emailConfirmed: true,
+        email: 'wrong@example.test',
+      }),
+    ).rejects.toThrow('does not match');
+    await expect(
+      r.authorize(
+        { ...admin, roles: [{ roleId: 10000, branchId: 'other' }] },
+        {
+          subjectType: 'APPLICATION',
+          subjectId: h.app.id,
+          identityVerified: true,
+          emailConfirmed: true,
+          email: 'family@example.test',
+        },
+      ),
+    ).rejects.toThrow();
+  });
+  it('first reset binds the email, revokes applicant sessions, permits future resets and prevents replay', async () => {
+    const h = await pending('TRAINEE'),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(h);
+    await r.request(h.nationalId);
+    const token = resetToken();
+    expect(token).toHaveLength(43);
+    const [challenge] = await q(
+      'SELECT * FROM public.password_reset_challenges WHERE national_id_hash=:hash',
+      { hash: h.identity.nationalIdHash },
+    );
+    expect(JSON.stringify(challenge)).not.toContain(token);
+    expect(
+      new Date(challenge.expires_at).getTime() -
+        new Date(challenge.created_at).getTime(),
+    ).toBe(1800000);
+    await expect(
+      r.consume(token, 'Next!Password23', 'mismatch'),
+    ).rejects.toThrow('do not match');
+    expect(
+      await r.consume(token, 'Next!Password23', 'Next!Password23'),
+    ).toEqual({ ok: true });
+    await expect(
+      r.consume(token, 'Next!Password24', 'Next!Password24'),
+    ).rejects.toThrow('invalid or expired');
+    expect(
+      (await ApplicantSession.findByPk(h.app.id))!.revokedAt,
+    ).not.toBeNull();
+    const c = await new ApplicationCredentialsRepository(db).find(
+      h.identity.nationalIdHash,
+    );
+    expect(await verifyPassword(c.passwordHash, 'Next!Password23')).toBe(true);
+    const [binding] = await q(
+      'SELECT bound_at FROM public.password_recovery_bindings WHERE national_id_hash=:hash',
+      { hash: h.identity.nationalIdHash },
+    );
+    expect(binding.bound_at).not.toBeNull();
+    await r.request(h.nationalId);
+    expect(resetToken()).not.toBe(token);
+  });
+  it('an applicant reset password and verified email binding transfer safely through approval', async () => {
+    const h = await pending('VOLUNTEER'),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(h);
+    await r.request(h.nationalId);
+    await r.consume(resetToken(), 'Next!Password23', 'Next!Password23');
+    const enabled = jest
+      .spyOn(applicantFeature, 'assertApplicantPasswordFeature')
+      .mockImplementation(() => {});
+    try {
+      const login = await new ApplicationCredentialsService(
+        new ApplicationCredentialsRepository(db),
+        repo,
+      ).login({ identifier: h.nationalId, password: 'Next!Password23' });
+      expect(login.token).toHaveLength(43);
+    } finally {
+      enabled.mockRestore();
+    }
+    const approved = await h.approve();
+    expect(
+      await verifyPassword(
+        (await User.findByPk(approved.userId))!.passwordHash!,
+        'Next!Password23',
+      ),
+    ).toBe(true);
+    mail.mockClear();
+    await r.request(h.nationalId);
+    expect(resetToken()).toHaveLength(43);
+    await r.consume(resetToken(), 'AfterApproval!23', 'AfterApproval!23');
+    expect(
+      await verifyPassword(
+        (await User.findByPk(approved.userId))!.passwordHash!,
+        'AfterApproval!23',
+      ),
+    ).toBe(true);
+  });
+  it('branchless draft ownership can be verified only by a super administrator without assigning a branch', async () => {
+    const nationalId = identifier(),
+      hash = getNationalIdDetails(nationalId).nationalIdHash;
+    const app = await TraineeApplication.create({
+      nationalIdHash: hash,
+      nationalIdEncrypted: 'synthetic',
+      registrationType: 'TRAINEE',
+    });
+    await db.transaction((t) =>
+      new ApplicationCredentialsRepository(db).create(
+        {
+          applicationId: app.id,
+          nationalIdHash: hash,
+          passwordHash: originalHash,
+          loginEmail: 'family@example.test',
+        },
+        t,
+      ),
+    );
+    const input = {
+      subjectType: 'IDENTITY' as const,
+      subjectId: nationalId,
+      email: 'family@example.test',
+      identityVerified: true,
+      emailConfirmed: true,
+    };
+    await expect(recovery().authorize(admin, input)).rejects.toThrow();
+    await expect(
+      recovery().authorize(
+        { ...admin, roles: [{ roleId: AUTH_ROLES.SUPER_ADMIN.id }] },
+        input,
+      ),
+    ).resolves.toMatchObject({ ok: true });
+    expect((await TraineeApplication.findByPk(app.id))!.branchId).toBeNull();
+  });
+  it('a changed registered mailbox requires new independent verification and family email never binds another identity', async () => {
+    const a = await pending('TRAINEE'),
+      b = await pending('VOLUNTEER'),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(a);
+    await r.request(b.nationalId);
+    expect(mail).not.toHaveBeenCalled();
+    await q(
+      "UPDATE public.application_credentials SET login_email='changed@example.test' WHERE application_id=:id",
+      { id: a.app.id },
+    );
+    await r.request(a.nationalId);
+    expect(mail).not.toHaveBeenCalled();
+  });
+  it('expired and replaced reset links cannot change passwords', async () => {
+    const h = await pending('VOLUNTEER'),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(h);
+    await r.request(h.nationalId);
+    const old = resetToken();
+    await r.request(h.nationalId);
+    const current = resetToken();
+    await expect(
+      r.consume(old, 'Next!Password23', 'Next!Password23'),
+    ).rejects.toThrow('invalid or expired');
+    await q(
+      "UPDATE public.password_reset_challenges SET created_at=now()-interval '31 minutes',expires_at=now()-interval '1 minute' WHERE national_id_hash=:hash AND revoked_at IS NULL",
+      { hash: h.identity.nationalIdHash },
+    );
+    await expect(
+      r.consume(current, 'Next!Password23', 'Next!Password23'),
+    ).rejects.toThrow('invalid or expired');
+  });
+  it('concurrent consume is single-use and approved reset invalidates JWT revisions with successful new login', async () => {
+    const h = await pending('TRAINEE'),
+      approved = await h.approve(),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(h);
+    await r.request(h.nationalId);
+    const token = resetToken();
+    const result = await Promise.allSettled([
+      r.consume(token, 'Next!Password23', 'Next!Password23'),
+      r.consume(token, 'Next!Password23', 'Next!Password23'),
+    ]);
+    expect(result.filter((x) => x.status === 'fulfilled')).toHaveLength(1);
+    const auth = new AuthService(
+      db,
+      roles,
+      users,
+      {
+        getAllBranches: async () => [
+          { id: 'a', name: 'Synthetic', isActive: true },
+        ],
+      } as never,
+      { sign: (p: unknown) => JSON.stringify(p) } as never,
+    );
+    await expect(
+      auth.assertSessionCurrent(approved.userId, undefined),
+    ).rejects.toThrow();
+    await expect(
+      auth.assertSessionCurrent(approved.userId, 0),
+    ).rejects.toThrow();
+    await expect(auth.login(h.nationalId, 'Applicant!2345')).rejects.toThrow();
+    const login = await auth.login(h.nationalId, 'Next!Password23');
+    expect(JSON.parse(login.token).sessionVersion).toBe(1);
+    await expect(
+      auth.assertSessionCurrent(approved.userId, 1),
+    ).resolves.toBeUndefined();
+  });
+  it('reset transaction rollback preserves password, token, binding and sessions for a retry', async () => {
+    const h = await pending('TRAINEE'),
+      r = recovery();
+    mail.mockClear();
+    await authorizeReset(h);
+    await r.request(h.nationalId);
+    const token = resetToken();
+    const query = db.query.bind(db),
+      spy = jest
+        .spyOn(db, 'query')
+        .mockImplementation((sql: any, opts: any) => {
+          if (
+            typeof sql === 'string' &&
+            sql.startsWith(
+              'UPDATE public.password_recovery_bindings SET bound_at',
+            )
+          )
+            throw Error('synthetic rollback');
+          return query(sql, opts);
+        });
+    try {
+      await expect(
+        r.consume(token, 'Next!Password23', 'Next!Password23'),
+      ).rejects.toThrow('synthetic rollback');
+    } finally {
+      spy.mockRestore();
+    }
+    expect((await ApplicantSession.findByPk(h.app.id))!.revokedAt).toBeNull();
+    const c = await new ApplicationCredentialsRepository(db).find(
+      h.identity.nationalIdHash,
+    );
+    expect(c.passwordHash).toBe(originalHash);
+    await expect(
+      r.consume(token, 'Next!Password23', 'Next!Password23'),
+    ).resolves.toEqual({ ok: true });
+  });
+  it('full real signup -> approval -> regular login retains the chosen password', async () => {
+    const h = await pending('VOLUNTEER', false, true),
+      approved = await h.approve();
+    const auth = new AuthService(
+      db,
+      roles,
+      users,
+      {
+        getAllBranches: async () => [
+          { id: 'a', name: 'Synthetic', isActive: true },
+        ],
+      } as never,
+      { sign: () => 'regular-jwt' } as never,
+    );
+    expect(await auth.login(h.nationalId, 'Applicant!2345')).toMatchObject({
+      token: 'regular-jwt',
+      mustChangePassword: false,
+    });
+    expect((await User.findByPk(approved.userId))!.mustChangePassword).toBe(
+      false,
+    );
+    await expect(service.me(h.token)).rejects.toThrow();
+  });
+  it.each([
+    'password_recovery_bindings',
+    'password_reset_challenges',
+    'password_reset_session_revisions',
+  ])(
+    '041 server-only table %s denies browser roles and is empty initially for untouched identities',
+    async (table) => {
+      const [row] = await q(
+        'SELECT relrowsecurity FROM pg_class WHERE oid=:table::regclass',
+        { table: `public.${table}` },
+      );
+      expect(row.relrowsecurity).toBe(true);
+      await expect(
+        owner.transaction(async (t) => {
+          await owner.query('SET LOCAL ROLE authenticated', {
+            transaction: t,
+            logging: false,
+          });
+          return q(`SELECT * FROM public.${table}`, {}, t);
+        }),
+      ).rejects.toMatchObject({ original: { code: '42501' } });
+    },
+  );
   it('public flow remains disabled throughout real approval tests', () => {
     expect(process.env.APPLICANT_PASSWORD_AUTH_ENABLED).toBe('false');
     expect(process.env.APPLICATION_CREDENTIALS_SCHEMA_READY).toBe('true');
-    expect(JSON.stringify(mail.mock.calls)).not.toMatch(
-      /setup-password|token=|argon2id/,
-    );
   });
 });

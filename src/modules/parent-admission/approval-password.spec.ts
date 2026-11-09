@@ -326,7 +326,7 @@ describe('Password approval lifecycle (offline transaction contracts)', () => {
         h.t,
       );
       const auth = new AuthService(
-        {} as never,
+        {query:async()=>[{revision:0,passwordHash:user.passwordHash}]} as never,
         {
           findRolesByUserId: async () => [
             { roleId: type === 'TRAINEE' ? 2 : 1, branchId: 'branch-a' },
