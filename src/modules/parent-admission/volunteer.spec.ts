@@ -327,3 +327,9 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
     );
   });
 });
+
+it('accepts and preserves no preference in all three questionnaire fields', () => {
+ const data: VolunteerData={questionnaire:{age:'לא משנה לי',communication:'לא משנה לי',diaper:'לא משנה לי'}};
+ expect(()=>validateVolunteerDraft(data)).not.toThrow();
+ expect(readVolunteerData(protectVolunteerData(data))).toEqual(data);
+});
