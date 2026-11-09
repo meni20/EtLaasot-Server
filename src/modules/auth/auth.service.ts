@@ -8,9 +8,14 @@ import {
   Injectable,
   Logger,
   UnauthorizedException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import axios from 'axios';
-import { getIntegerEnv, getOptionalEnv } from 'src/config/env.util';
+import {
+  getBooleanEnv,
+  getIntegerEnv,
+  getOptionalEnv,
+} from 'src/config/env.util';
 import {
   assertNationalIdHashSecretConfigured,
   getNationalIdDetails,
@@ -136,7 +141,12 @@ export default class AuthService {
     const activeBranch = roles.find((role) => role.branchId)?.branchId || '';
     const mustChangePassword = Boolean(user.mustChangePassword);
 
+    const sessionVersion = await this.sessionRevision(
+      userId,
+      user.passwordHash!,
+    );
     const payload = {
+      ...(sessionVersion !== undefined ? { sessionVersion } : {}),
       sub: userId,
       roles,
       activeBranch,
@@ -153,6 +163,47 @@ export default class AuthService {
       activeBranch,
       mustChangePassword,
     };
+  }
+
+  // Uncached indexed revision checks revoke JWTs on every replica after reset.
+  // Old JWTs without the claim remain valid only while revision is zero.
+  private async sessionRevision(userId: string, verifiedHash?: string) {
+    if (!getBooleanEnv('APPLICATION_CREDENTIALS_SCHEMA_READY', false))
+      return undefined;
+    try {
+      const [row] = await this.sequelize.query<{
+        revision: number;
+        passwordHash: string;
+      }>(
+        `SELECT COALESCE(r.revision,0) AS revision,u.password_hash AS "passwordHash" FROM public."user" u
+         LEFT JOIN public.password_reset_session_revisions r ON r.user_id=u.id WHERE u.id=:id AND u.is_active AND u."deletedAt" IS NULL`,
+        {
+          replacements: { id: userId },
+          type: QueryTypes.SELECT,
+          logging: false,
+        },
+      );
+      if (
+        !row ||
+        (verifiedHash !== undefined && row.passwordHash !== verifiedHash)
+      )
+        throw this.invalidCredentials();
+      return row.revision;
+    } catch (error) {
+      if (error instanceof UnauthorizedException) throw error;
+      throw new ServiceUnavailableException('Session validation unavailable');
+    }
+  }
+  async assertSessionCurrent(userId: string, version: unknown) {
+    const current = await this.sessionRevision(userId);
+    if (current === undefined) return;
+    const supplied = version === undefined ? 0 : version;
+    if (
+      typeof supplied !== 'number' ||
+      !Number.isSafeInteger(supplied) ||
+      supplied !== current
+    )
+      throw this.invalidCredentials();
   }
 
   async changePassword(

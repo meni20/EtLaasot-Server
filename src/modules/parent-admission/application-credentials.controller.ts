@@ -49,10 +49,20 @@ export class ApplicantPasswordGuard implements CanActivate {
     } catch {
       /* Invalid inputs still consume the peer/global rate budget. */
     }
+    const action = req.path.startsWith('/password-recovery/')
+      ? `password-reset-${req.path.endsWith('/consume') ? 'consume' : 'request'}`
+      : undefined;
+    if (
+      action &&
+      req.path.endsWith('/consume') &&
+      typeof req.body?.token === 'string'
+    )
+      identity = req.body.token.slice(0, 128);
     await this.limits.consume(
-      req.path.endsWith('/signup')
-        ? 'applicant-password-signup'
-        : 'applicant-password-login',
+      action ??
+        (req.path.endsWith('/signup')
+          ? 'applicant-password-signup'
+          : 'applicant-password-login'),
       req.socket.remoteAddress ?? 'unknown',
       identity,
     );

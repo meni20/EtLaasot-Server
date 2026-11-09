@@ -1,3 +1,5 @@
+import { PasswordRecoveryService } from './password-recovery.service';
+import { PasswordRecoveryController } from './password-recovery.controller';
 import { RegistrationIntegrationModule } from '../parent-registration/registration-integration.module';
 import { EmailModule } from '../email/email.module';
 import { WelcomeEmailService } from './welcome.service';
@@ -40,6 +42,7 @@ import {
     SequelizeModule.forFeature(ADMISSION_MODELS),
   ],
   controllers: [
+    PasswordRecoveryController,
     ApplicationCredentialsController,
     WelcomeController,
     LoginInitiationController,
@@ -47,6 +50,7 @@ import {
     ApplicantAdminController,
   ],
   providers: [
+    PasswordRecoveryService,
     ApplicationCredentialsRepository,
     ApplicationCredentialsService,
     ApplicantPasswordGuard,
