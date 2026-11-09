@@ -1,6 +1,11 @@
 import { NotFoundException } from '@nestjs/common';
-import { getBooleanEnv, isProduction } from '../../config/env.util';
-import { isVerifiedRailwayDevRuntime } from '../parent-registration/registration-environment';
+import { getBooleanEnv } from '../../config/env.util';
+import {
+  isVerifiedRailwayDevRuntime,
+  isVerifiedRailwayProductionRuntime,
+  hasExpectedRegistrationConfiguration,
+  isAllowedDocumentsBaseUrl,
+} from '../parent-registration/registration-environment';
 
 export function assertApplicantPasswordFeature() {
   const localDev =
@@ -10,12 +15,28 @@ export function assertApplicantPasswordFeature() {
     !process.env.RAILWAY_PROJECT_ID &&
     !process.env.RAILWAY_ENVIRONMENT_ID &&
     !process.env.RAILWAY_SERVICE_ID;
+  const production = isVerifiedRailwayProductionRuntime();
+  const expected = production
+    ? {
+        ref: 'tmlnuqrwhdeplpeuuvwv',
+        host: 'aws-1-eu-central-1.pooler.supabase.com',
+      }
+    : {
+        ref: 'vlysppqfozfiwcmsyban',
+        host: 'aws-0-eu-central-1.pooler.supabase.com',
+      };
   if (
-    isProduction() ||
-    (!localDev && !isVerifiedRailwayDevRuntime()) ||
-    process.env.SUPABASE_URL !== 'https://vlysppqfozfiwcmsyban.supabase.co' ||
-    process.env.DB_USER !== 'etlaasot_app.vlysppqfozfiwcmsyban' ||
-    process.env.DB_HOST !== 'aws-0-eu-central-1.pooler.supabase.com' ||
+    (!localDev && !isVerifiedRailwayDevRuntime() && !production) ||
+    process.env.SUPABASE_URL !== `https://${expected.ref}.supabase.co` ||
+    process.env.DB_USER !== `etlaasot_app.${expected.ref}` ||
+    process.env.DB_HOST !== expected.host ||
+    (production &&
+      (!hasExpectedRegistrationConfiguration() ||
+        !isAllowedDocumentsBaseUrl(
+          process.env.REGISTRATION_DOCUMENTS_URL ?? '',
+        ) ||
+        process.env.PUBLIC_CLIENT_ORIGIN !==
+          'https://etlaasot-client-main-main.up.railway.app')) ||
     process.env.DB_PORT !== '5432' ||
     process.env.DB_NAME !== 'postgres' ||
     process.env.DB_SSL !== 'true' ||
