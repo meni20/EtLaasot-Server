@@ -36,9 +36,9 @@ export interface VolunteerData {
   questionnaire?: {
     preference?: 'משחקייה' | 'חונכות בית' | 'אחר';
     other?: string;
-    age?: 'קטן' | 'בוגר';
-    communication?: 'מדבר' | 'לא מתקשר';
-    diaper?: 'עם טיטול' | 'ללא טיטול';
+    age?: 'קטן' | 'בוגר' | 'לא משנה לי';
+    communication?: 'מדבר' | 'לא מתקשר' | 'לא משנה לי';
+    diaper?: 'עם טיטול' | 'ללא טיטול' | 'לא משנה לי';
     instructionExperience?: boolean;
     instructionDetails?: string;
     specialNeedsExperience?: boolean;

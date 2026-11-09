@@ -46,9 +46,9 @@ const schema: Record<string, Rule> = {
   questionnaire: {
     preference: ['משחקייה', 'חונכות בית', 'אחר'],
     other: 'long',
-    age: ['קטן', 'בוגר'],
-    communication: ['מדבר', 'לא מתקשר'],
-    diaper: ['עם טיטול', 'ללא טיטול'],
+    age: ['קטן', 'בוגר', 'לא משנה לי'],
+    communication: ['מדבר', 'לא מתקשר', 'לא משנה לי'],
+    diaper: ['עם טיטול', 'ללא טיטול', 'לא משנה לי'],
     instructionExperience: 'boolean',
     instructionDetails: 'long',
     specialNeedsExperience: 'boolean',
