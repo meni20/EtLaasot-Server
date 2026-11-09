@@ -142,12 +142,57 @@ export default class UserService {
     }
   }
 
+  // Internal approval-only entry point. No controller/DTO accepts this hash or role.
+  // Requires the row-locked approval transaction; it never commits independently.
+  async createApprovedApplicantWithRole(
+    userData: IUser,
+    type: 'TRAINEE' | 'VOLUNTEER',
+    passwordHash: string,
+    transaction: Transaction,
+  ): Promise<{
+    user: Awaited<ReturnType<UserRepository['create']>>;
+    temporaryPassword?: never;
+    temporaryPasswordExpiresAt?: never;
+  }> {
+    if (
+      !transaction ||
+      !/^\$argon2id\$v=19\$m=\d+,t=\d+,p=\d+\$[A-Za-z0-9+/]+\$[A-Za-z0-9+/]+$/.test(
+        passwordHash,
+      )
+    )
+      throw new ConflictException('Applicant credential is invalid');
+    this.validateDateOfBirth(userData.dateOfBirth, true);
+    const identity = getNationalIdDetails(userData.id);
+    await this.assertNationalIdAvailable(identity.nationalIdHash, transaction);
+    try {
+      const user = await this.userRepository.create(
+        this.normalizeCreateUserData(userData, identity, {
+          passwordHash,
+          mustChangePassword: false,
+        }),
+        transaction,
+      );
+      await this.userRoleService.asignRoleToUser(
+        user.id,
+        type === 'TRAINEE' ? AUTH_ROLES.TRAINEE.id : AUTH_ROLES.VOLUNTEER.id,
+        user.name,
+        transaction,
+        userData.branchId ?? undefined,
+      );
+      return { user };
+    } catch (err) {
+      this.throwConflictForDuplicateNationalId(err);
+      throw err;
+    }
+  }
+
   private normalizeCreateUserData(
     userData: IUser,
     nationalIdDetails: ReturnType<typeof getNationalIdDetails>,
     authData?: {
       passwordHash?: string;
       temporaryPasswordExpiresAt?: Date;
+      mustChangePassword?: boolean;
     },
   ): IUser {
     return {
@@ -160,7 +205,8 @@ export default class UserService {
       ),
       passwordHash: authData?.passwordHash ?? null,
       passwordChangedAt: null,
-      mustChangePassword: Boolean(authData?.passwordHash),
+      mustChangePassword:
+        authData?.mustChangePassword ?? Boolean(authData?.passwordHash),
       failedLoginAttempts: 0,
       lockedUntil: null,
       temporaryPasswordExpiresAt: authData?.temporaryPasswordExpiresAt ?? null,

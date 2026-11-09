@@ -10,7 +10,6 @@ import {
   jerusalemDate,
   reconcileSignatures,
   needsParent,
-  needsClearance,
   type VolunteerData,
   type VolunteerPurpose,
 } from './volunteer.contract';
@@ -38,9 +37,11 @@ import {
   Injectable,
   NotFoundException,
   Optional,
+  UnauthorizedException,
 } from '@nestjs/common';
 import type { Transaction } from 'sequelize';
 import { getBooleanEnv } from '../../config/env.util';
+import { assertApplicantPasswordFeature } from './application-credentials.feature';
 import {
   AuthorizationService,
   type AuthUser,
@@ -84,9 +85,21 @@ export class AdmissionService {
     @Optional() private readonly deletion?: DraftDeletionService,
   ) {}
 
-  async identify(identifier: string) {
+  async identify(identifier: string, passwordFlow = false) {
     const hash = getNationalIdDetails(identifier).nationalIdHash;
     const existing = await this.repo.existingIdentity(hash);
+    if (
+      passwordFlow &&
+      getBooleanEnv('APPLICANT_PASSWORD_AUTH_ENABLED', false)
+    ) {
+      assertApplicantPasswordFeature();
+      if (existing) return { next: 'PASSWORD' };
+      if (await this.repo.hasPasswordCredentials(hash))
+        return { next: 'APPLICANT_PASSWORD' };
+      if (await this.repo.existingApplication(hash))
+        return { next: 'LEGACY_RECOVERY' };
+      return { next: 'REGISTER' };
+    }
     // Product-required discovery discloses only the next step, never account data.
     // Inactive/archived identities also take PASSWORD; they cannot be re-registered.
     return {
@@ -196,6 +209,8 @@ export class AdmissionService {
       if (this.integration?.enabled()) {
         await this.integration.attest(t);
       }
+      if (app.status === 'APPROVED' || app.provisionedUserId)
+        throw new UnauthorizedException('Use regular account login');
       return work(app, t);
     });
   }
@@ -236,6 +251,8 @@ export class AdmissionService {
       const session = await this.repo.session(hash, true, t);
       if (!session.recoveryExpiresAt) throw new NotFoundException();
       const app = await this.repo.application(session.applicationId, t);
+      if (app.status === 'APPROVED' || app.provisionedUserId)
+        throw new UnauthorizedException('Use regular account login');
       const { token, recoveryCode: nextCode, ...stored } = this.credentials();
       stored.recoveryExpiresAt = session.recoveryExpiresAt;
       stored.expiresAt = new Date(
@@ -273,6 +290,13 @@ export class AdmissionService {
           code: 'APPLICATION_ALREADY_PROVISIONED',
           message: 'Use account login for approved applications',
         });
+      if (
+        getBooleanEnv('APPLICATION_CREDENTIALS_SCHEMA_READY', false) &&
+        (await this.repo.approvalCredential(app.id, app.nationalIdHash, t))
+      )
+        throw new ConflictException(
+          'Password applications do not use recovery codes',
+        );
       const {
         recoveryCode,
         token: _unusedToken,
@@ -307,11 +331,31 @@ export class AdmissionService {
       revision: number;
       currentStep: number;
       data: ApplicationFormData<T>;
+      branchId?: string | null;
     },
   ) {
     return this.withSession(token, async (app, t) => {
       const policy = admissionPolicy(app.registrationType);
       policy.assertAvailable('SAVE');
+      const branchChanged =
+        input.branchId !== undefined && input.branchId !== app.branchId;
+      if (input.branchId !== undefined) {
+        assertApplicantPasswordFeature();
+        if (branchChanged && app.status !== 'DRAFT')
+          throw new ConflictException('Branch cannot change after submission');
+        if (
+          branchChanged &&
+          (await this.repo.evidence(app.id, t)).some(
+            (d) => d.kind === 'SIGNATURE',
+          )
+        )
+          throw new ConflictException('Branch cannot change after signing');
+        if (
+          input.branchId !== null &&
+          !(await this.repo.branch(input.branchId, t))
+        )
+          throw new BadRequestException('Choose an active branch');
+      }
       if (policy.type === 'VOLUNTEER') {
         validateVolunteerDraft(input.data);
         if (!isEditable(app.status) || input.revision !== app.revision)
@@ -336,6 +380,7 @@ export class AdmissionService {
           next,
           VOLUNTEER_AGREEMENT_VERSION,
         );
+        if (branchChanged) delete data.signatures;
         for (const purpose of VOLUNTEER_PURPOSES)
           if (
             data.signatures?.[purpose] &&
@@ -350,6 +395,9 @@ export class AdmissionService {
             draftData: protectVolunteerData(data),
             revision: app.revision + 1,
             currentStep: input.currentStep,
+            ...(branchChanged
+              ? { branchId: input.branchId, documentStatus: 'PENDING' }
+              : {}),
           },
           { transaction: t },
         );
@@ -376,7 +424,8 @@ export class AdmissionService {
       ).normalizedNationalId;
       const previous = readData(app.draftData as RegistrationData),
         hash = contentHash(next);
-      if (hash !== contentHash(previous)) delete next.signatures;
+      if (branchChanged || hash !== contentHash(previous))
+        delete next.signatures;
       for (const signing of Object.values(next.signatures ?? {}))
         if (signing.contentHash !== hash)
           throw new BadRequestException(
@@ -387,6 +436,9 @@ export class AdmissionService {
           draftData: protectData(next),
           revision: app.revision + 1,
           currentStep: input.currentStep,
+          ...(branchChanged
+            ? { branchId: input.branchId, documentStatus: 'PENDING' }
+            : {}),
         },
         { transaction: t },
       );
@@ -458,6 +510,14 @@ export class AdmissionService {
         );
       const data = readData(app.draftData as RegistrationData),
         hash = contentHash(data);
+      if (
+        (getBooleanEnv('APPLICANT_PASSWORD_AUTH_ENABLED', false) ||
+          !app.branchId) &&
+        !(await this.repo.branch(app.branchId, t))
+      )
+        throw new ConflictException(
+          'Choose an active branch before submission',
+        );
       const required = this.requiredEvidence(
         data,
         await this.repo.evidence(app.id, t),
@@ -642,6 +702,13 @@ export class AdmissionService {
       const policy = admissionPolicy(app.registrationType);
       policy.assertAvailable('UPLOAD');
       if (
+        kind === 'SIGNATURE' &&
+        (getBooleanEnv('APPLICANT_PASSWORD_AUTH_ENABLED', false) ||
+          !app.branchId) &&
+        !(await this.repo.branch(app.branchId, t))
+      )
+        throw new ConflictException('Choose an active branch before signing');
+      if (
         !this.integration?.enabled() ||
         !isEditable(app.status) ||
         app.revision !== revision
@@ -741,8 +808,11 @@ export class AdmissionService {
     actor: AuthUser,
     id: string,
     work: (app: TraineeApplication, t: Transaction) => Promise<T>,
+    approving = false,
   ) {
     return this.repo.transaction(async (t) => {
+      // Same order as password login/recovery/save: session before application.
+      if (approving) await this.repo.lockApplicantSession(id, t);
       const app = await this.repo.application(id, t);
       if (!app.branchId) throw new NotFoundException();
       this.auth.assertAdminForBranch(actor, app.branchId);
@@ -794,11 +864,26 @@ export class AdmissionService {
   detail(actor: AuthUser, id: string) {
     return this.admin(actor, id, async (app, t) => {
       admissionPolicy(app.registrationType).assertAvailable('REVIEW');
+      const credential = await this.passwordForApproval(app, t);
       return {
-        welcomeEmail: await this.welcome?.status(app.id, t) ?? { status: 'DISABLED' },
+        ...(credential
+          ? {
+              authentication: 'EXISTING_PASSWORD' as const,
+              approvalNotificationEmail: credential.loginEmail.replace(
+                /^(.).*(@.*)$/,
+                '$1***$2',
+              ),
+            }
+          : {}),
+        welcomeEmail: (await this.welcome?.status(app.id, t)) ?? {
+          status: 'DISABLED',
+        },
         application: this.summary(app),
-        recoveryEligible: app.status !== 'APPROVED' && !app.provisionedUserId,
-        canDeleteDraft: app.status === 'DRAFT' && !!(await this.deletion?.eligible(app.id, actor)),
+        recoveryEligible:
+          !credential && app.status !== 'APPROVED' && !app.provisionedUserId,
+        canDeleteDraft:
+          app.status === 'DRAFT' &&
+          !!(await this.deletion?.eligible(app.id, actor)),
         branch: await this.repo.branch(app.branchId, t),
         history: (await this.repo.events(app.id, t)).map((e) => ({
           id: e.id,
@@ -911,113 +996,150 @@ export class AdmissionService {
     expectedVersionId: string,
     identityVerified: boolean,
     welcomeEmailConfirmed = false,
-  ) {
+  ): Promise<{
+    application: ReturnType<AdmissionService['summary']>;
+    userId: string;
+    temporaryPassword?: string;
+    temporaryPasswordExpiresAt?: Date;
+    authentication?: 'EXISTING_PASSWORD';
+    idempotent?: boolean;
+    welcomeEmail: Awaited<ReturnType<WelcomeEmailService['status']>>;
+  }> {
     if (identityVerified !== true)
       throw new BadRequestException(
         'Administrator identity verification must be confirmed',
       );
-    return this.admin(actor, id, async (app, t) => {
-      const policy = admissionPolicy(app.registrationType);
-      policy.assertAvailable('APPROVE');
-      if (policy.type === 'VOLUNTEER')
-        return this.approveVolunteer(actor, app, expectedVersionId, t);
-      if (app.status !== 'PENDING_REVIEW')
-        throw new ConflictException('Application is not pending');
-      const latest = (await this.repo.versions(app.id, t))[0];
-      if (
-        !latest ||
-        latest.id !== expectedVersionId ||
-        app.documentStatus !== 'READY'
-      )
-        throw new ConflictException(
-          'Current signed PDF is required before approval',
-        );
-      const data = readData(latest.formData as RegistrationData),
-        docs = await this.repo.evidence(app.id, t);
-      if (
-        contentHash(data) !== latest.contentHash ||
-        registrationType(latest.registrationType) !== policy.type ||
-        latest.declarationVersion !== policy.declarationVersion ||
-        JSON.stringify(latest.declarations) !==
-          JSON.stringify(policy.declarations)
-      )
-        throw new ConflictException(
-          'Submitted evidence integrity could not be verified',
-        );
-      const required = this.requiredEvidence(
-        data,
-        docs,
-        latest.contentHash,
-        policy.type,
-      );
-      const pdf = docs.find(
-        (d) =>
-          d.kind === 'REGISTRATION_PDF' &&
-          d.versionId === latest.id &&
-          d.contentHash === latest.contentHash &&
-          d.mimeType === 'application/pdf' &&
-          d.verifiedAt &&
-          d.fileSize > 0 &&
-          /^[a-f0-9]{64}$/.test(d.checksum),
-      );
-      if (!pdf)
-        throw new ConflictException(
-          'Verified PDF for the reviewed version is required',
-        );
-      if (this.integration?.enabled()) {
-        await this.integration.verifySigned(
-          'application',
-          app.id,
+    return this.admin(
+      actor,
+      id,
+      async (app, t) => {
+        const policy = admissionPolicy(app.registrationType);
+        policy.assertAvailable('APPROVE');
+        if (policy.type === 'VOLUNTEER')
+          return this.approveVolunteer(actor, app, expectedVersionId, t);
+        if (app.status === 'APPROVED')
+          return this.approvalReplay(app, expectedVersionId, t);
+        if (app.status !== 'PENDING_REVIEW')
+          throw new ConflictException('Application is not pending');
+        const latest = (await this.repo.versions(app.id, t))[0];
+        if (
+          !latest ||
+          latest.id !== expectedVersionId ||
+          app.documentStatus !== 'READY'
+        )
+          throw new ConflictException(
+            'Current signed PDF is required before approval',
+          );
+        const data = readData(latest.formData as RegistrationData),
+          docs = await this.repo.evidence(app.id, t);
+        if (
+          contentHash(data) !== latest.contentHash ||
+          registrationType(latest.registrationType) !== policy.type ||
+          latest.declarationVersion !== policy.declarationVersion ||
+          JSON.stringify(latest.declarations) !==
+            JSON.stringify(policy.declarations)
+        )
+          throw new ConflictException(
+            'Submitted evidence integrity could not be verified',
+          );
+        const required = this.requiredEvidence(
           data,
-          required,
-          t,
+          docs,
+          latest.contentHash,
+          policy.type,
         );
-        await this.integration.download(pdf, 'application', app.id, t);
-      } else await this.evidence.verify([...required, pdf]); // Default adapter always fails closed.
-      if (!(await this.repo.branch(app.branchId, t)))
-        throw new ConflictException('Selected branch is inactive');
-      const identity = getNationalIdDetails(data.trainee!.nationalId!);
-      if (
-        identity.nationalIdHash !== app.nationalIdHash ||
-        (await this.repo.existingIdentity(app.nationalIdHash, t))
-      )
-        throw new ConflictException('Identity already exists or changed');
-      const result = await this.users.createTraineeWithRole(
-        {
+        const pdf = docs.find(
+          (d) =>
+            d.kind === 'REGISTRATION_PDF' &&
+            d.versionId === latest.id &&
+            d.contentHash === latest.contentHash &&
+            d.mimeType === 'application/pdf' &&
+            d.verifiedAt &&
+            d.fileSize > 0 &&
+            /^[a-f0-9]{64}$/.test(d.checksum),
+        );
+        if (!pdf)
+          throw new ConflictException(
+            'Verified PDF for the reviewed version is required',
+          );
+        if (this.integration?.enabled()) {
+          await this.integration.verifySigned(
+            'application',
+            app.id,
+            data,
+            required,
+            t,
+          );
+          await this.integration.download(pdf, 'application', app.id, t);
+        } else await this.evidence.verify([...required, pdf]); // Default adapter always fails closed.
+        if (!(await this.repo.branch(app.branchId, t)))
+          throw new ConflictException('Selected branch is inactive');
+        const identity = getNationalIdDetails(data.trainee!.nationalId!);
+        if (
+          identity.nationalIdHash !== app.nationalIdHash ||
+          (await this.repo.existingIdentity(app.nationalIdHash, t))
+        )
+          throw new ConflictException('Identity already exists or changed');
+        const credential = await this.passwordForApproval(app, t);
+        const profile = {
           ...approvedProfileMapping(data),
           phoneNumber: data.trainee!.phone!,
           id: identity.normalizedNationalId,
           branchId: app.branchId,
           isActive: true,
-        },
-        t,
-      );
-      await app.update(
-        {
-          status: 'APPROVED',
-          provisionedUserId: result.user.id,
-          approvedActivityYearId: await this.repo.currentYear(t),
-          reviewedBy: this.auth.getActorId(actor),
-          reviewedAt: new Date(),
-          feedbackReason: null,
-        },
-        { transaction: t },
-      );
-      await this.repo.event(app.id, 'APPROVED', t, this.auth.getActorId(actor));
-      const welcomeEmail = await this.welcome?.enqueue({
-        applicationId: app.id, userId: result.user.id,
-        passwordHash: result.user.passwordHash,
-        email: data.trainee?.email, authorized: welcomeEmailConfirmed,
-      }, t) ?? { status: 'DISABLED' };
-      // Return once to the authorized administrator only. Never persist/cache/log.
-      return {
-        application: this.summary(app),
-        userId: result.user.id,
-        temporaryPassword: result.temporaryPassword,
-        temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
-        welcomeEmail,
-      };
-    });
+        };
+        const result = credential
+          ? await this.users.createApprovedApplicantWithRole(
+              profile,
+              'TRAINEE',
+              credential.passwordHash,
+              t,
+            )
+          : await this.users.createTraineeWithRole(profile, t);
+        await app.update(
+          {
+            status: 'APPROVED',
+            provisionedUserId: result.user.id,
+            approvedActivityYearId: await this.repo.currentYear(t),
+            reviewedBy: this.auth.getActorId(actor),
+            reviewedAt: new Date(),
+            feedbackReason: null,
+          },
+          { transaction: t },
+        );
+        if (credential) await this.repo.revokeApplicantSessions(app.id, t);
+        await this.repo.event(
+          app.id,
+          'APPROVED',
+          t,
+          this.auth.getActorId(actor),
+        );
+        const welcomeEmail = (await this.welcome?.enqueue(
+          {
+            applicationId: app.id,
+            userId: result.user.id,
+            passwordHash: result.user.passwordHash,
+            email: credential?.loginEmail ?? data.trainee?.email,
+            authorized: welcomeEmailConfirmed,
+            ...(credential ? { notificationOnly: true } : {}),
+          },
+          t,
+        )) ?? { status: 'DISABLED' };
+        // Return once to the authorized administrator only. Never persist/cache/log.
+        return {
+          application: this.summary(app),
+          userId: result.user.id,
+          ...('temporaryPassword' in result
+            ? {
+                temporaryPassword: result.temporaryPassword,
+                temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
+              }
+            : { authentication: 'EXISTING_PASSWORD' as const }),
+          welcomeEmail,
+        };
+      },
+      true,
+    );
   }
   private async approveVolunteer(
     actor: AuthUser,
@@ -1031,20 +1153,8 @@ export class AdmissionService {
       throw new ConflictException(
         'Submitted version changed; reload before approving',
       );
-    if (app.status === 'APPROVED') {
-      const user = await this.repo.existingIdentity(app.nationalIdHash, t);
-      if (!app.provisionedUserId || user?.id !== app.provisionedUserId)
-        throw new ConflictException(
-          'Approved account association is inconsistent',
-        );
-      // Idempotent replay never recovers or regenerates the one-time secret.
-      return {
-        application: this.summary(app),
-        userId: app.provisionedUserId,
-        idempotent: true,
-        welcomeEmail: await this.welcome?.status(app.id, t) ?? { status: 'DISABLED' },
-      };
-    }
+    if (app.status === 'APPROVED')
+      return this.approvalReplay(app, expectedVersionId, t);
     if (app.status !== 'PENDING_REVIEW' || app.documentStatus !== 'READY')
       throw new ConflictException(
         'Current signed PDF is required before approval',
@@ -1102,17 +1212,23 @@ export class AdmissionService {
       (await this.repo.existingIdentity(app.nationalIdHash, t))
     )
       throw new ConflictException('Identity already exists or changed');
-    const result = await this.users.createUserWithRole(
-      {
-        ...volunteerApprovedProfileMapping(data),
-        name: `${data.volunteer!.firstName} ${data.volunteer!.lastName}`.trim(),
-        phoneNumber: data.volunteer!.phone!,
-        id: identity.normalizedNationalId,
-        branchId: app.branchId,
-        isActive: true,
-      },
-      t,
-    );
+    const credential = await this.passwordForApproval(app, t);
+    const profile = {
+      ...volunteerApprovedProfileMapping(data),
+      name: `${data.volunteer!.firstName} ${data.volunteer!.lastName}`.trim(),
+      phoneNumber: data.volunteer!.phone!,
+      id: identity.normalizedNationalId,
+      branchId: app.branchId,
+      isActive: true,
+    };
+    const result = credential
+      ? await this.users.createApprovedApplicantWithRole(
+          profile,
+          'VOLUNTEER',
+          credential.passwordHash,
+          t,
+        )
+      : await this.users.createUserWithRole(profile, t);
     await app.update(
       {
         status: 'APPROVED',
@@ -1123,6 +1239,7 @@ export class AdmissionService {
       },
       { transaction: t },
     );
+    if (credential) await this.repo.revokeApplicantSessions(app.id, t);
     await this.repo.event(
       app.id,
       'APPROVED',
@@ -1130,18 +1247,64 @@ export class AdmissionService {
       this.auth.getActorId(actor),
       latest.id,
     );
-    const welcomeEmail = await this.welcome?.enqueue({
-      applicationId: app.id, userId: result.user.id,
-      passwordHash: result.user.passwordHash,
-      email: data.volunteer?.email, authorized: true,
-    }, t) ?? { status: 'DISABLED' };
+    const welcomeEmail = (await this.welcome?.enqueue(
+      {
+        applicationId: app.id,
+        userId: result.user.id,
+        passwordHash: result.user.passwordHash,
+        email: credential?.loginEmail ?? data.volunteer?.email,
+        authorized: true,
+        ...(credential ? { notificationOnly: true } : {}),
+      },
+      t,
+    )) ?? { status: 'DISABLED' };
     return {
       application: this.summary(app),
       userId: result.user.id,
-      temporaryPassword: result.temporaryPassword,
-      temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
+      ...('temporaryPassword' in result
+        ? {
+            temporaryPassword: result.temporaryPassword,
+            temporaryPasswordExpiresAt: result.temporaryPasswordExpiresAt,
+          }
+        : { authentication: 'EXISTING_PASSWORD' as const }),
       idempotent: false,
       welcomeEmail,
+    };
+  }
+  private passwordForApproval(app: TraineeApplication, t: Transaction) {
+    // Schema readiness is independent of public signup activation. Legacy sites
+    // without 039 never query its table. Missing/malformed credentials fail closed
+    // via the 039 user-identity trigger instead of replacing existing passwords.
+    return getBooleanEnv('APPLICATION_CREDENTIALS_SCHEMA_READY', false)
+      ? this.repo.approvalCredential(app.id, app.nationalIdHash, t)
+      : undefined;
+  }
+  private async approvalReplay(
+    app: TraineeApplication,
+    expectedVersionId: string,
+    t: Transaction,
+  ) {
+    const latest = (await this.repo.versions(app.id, t))[0];
+    const user = await this.repo.existingIdentity(app.nationalIdHash, t);
+    if (
+      !latest ||
+      latest.id !== expectedVersionId ||
+      !app.provisionedUserId ||
+      user?.id !== app.provisionedUserId
+    )
+      throw new ConflictException(
+        'Approved account association or version is inconsistent',
+      );
+    return {
+      application: this.summary(app),
+      userId: app.provisionedUserId,
+      idempotent: true,
+      ...((await this.passwordForApproval(app, t))
+        ? { authentication: 'EXISTING_PASSWORD' as const }
+        : {}),
+      welcomeEmail: (await this.welcome?.status(app.id, t)) ?? {
+        status: 'DISABLED',
+      },
     };
   }
   retryWelcome(actor: AuthUser, id: string) {

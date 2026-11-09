@@ -78,6 +78,7 @@ describe('Phase 4 applicant trust boundary (offline)', () => {
     docs = [];
     repo = {
       transaction: jest.fn((work) => work(t)),
+      lockApplicantSession: jest.fn(async () => {}),
       existingIdentity: jest.fn(async () => null),
       branches: jest.fn(async () => [
         { id: 'branch-a', name: 'Fictional', city: 'Test' },

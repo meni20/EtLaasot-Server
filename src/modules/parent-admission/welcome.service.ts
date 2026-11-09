@@ -25,6 +25,7 @@ import {
 
 type Delivery = {
   id: string;
+  delivery_kind?: 'PASSWORD_SETUP' | 'APPROVAL_NOTICE';
   application_id: string;
   user_id: string;
   recipient: string | null;
@@ -55,6 +56,7 @@ export type WelcomeStatus = {
   reason?: string | null;
   passwordSet?: boolean;
   retryable?: boolean;
+  notificationOnly?: boolean;
 };
 
 @Injectable()
@@ -103,10 +105,15 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
       passwordHash: string | null;
       email?: string;
       authorized: boolean;
+      notificationOnly?: boolean;
     },
     t: Transaction,
   ): Promise<WelcomeStatus> {
     if (!this.enabled()) return { status: 'DISABLED' };
+    if (input.notificationOnly && !(await this.noticeSchema(t)))
+      throw new ConflictException(
+        'Approval notification migration 040 is required',
+      );
     if (!input.passwordHash)
       throw new ConflictException('Provisioned credential is required');
     const config = welcomeConfig(),
@@ -121,26 +128,47 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
             ? 'DEV_RECIPIENT_BLOCKED'
             : null;
     const id = randomUUID(),
-      token = reason ? null : randomBytes(32).toString('base64url');
-    await this.query(
-      `INSERT INTO public.onboarding_deliveries
+      token =
+        reason || input.notificationOnly
+          ? null
+          : randomBytes(32).toString('base64url');
+    // Keep legacy SQL compatible with schema 037 when there is no password signup.
+    if (input.notificationOnly) {
+      await this.query(
+        `INSERT INTO public.onboarding_deliveries
+        (id,application_id,user_id,recipient,status,reason,delivery_kind)
+        VALUES(:id,:application,:user,:recipient,:status,:reason,'APPROVAL_NOTICE')
+        ON CONFLICT(application_id) DO NOTHING`,
+        {
+          id,
+          application: input.applicationId,
+          user: input.userId,
+          recipient,
+          status: reason ? 'SKIPPED' : 'PENDING',
+          reason,
+        },
+        t,
+      );
+    } else
+      await this.query(
+        `INSERT INTO public.onboarding_deliveries
       (id,application_id,user_id,recipient,status,reason,token_hash,token_ciphertext,credential_hash,expires_at)
       VALUES(:id,:application,:user,:recipient,:status,:reason,:hash,:cipher,:credential,:expires)
       ON CONFLICT(application_id) DO NOTHING`,
-      {
-        id,
-        application: input.applicationId,
-        user: input.userId,
-        recipient,
-        status: reason ? 'SKIPPED' : 'PENDING',
-        reason,
-        hash: token ? digest(token) : null,
-        cipher: token ? sealToken(token, id, config.key) : null,
-        credential: token ? digest(input.passwordHash) : null,
-        expires: token ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null,
-      },
-      t,
-    );
+        {
+          id,
+          application: input.applicationId,
+          user: input.userId,
+          recipient,
+          status: reason ? 'SKIPPED' : 'PENDING',
+          reason,
+          hash: token ? digest(token) : null,
+          cipher: token ? sealToken(token, id, config.key) : null,
+          credential: token ? digest(input.passwordHash) : null,
+          expires: token ? new Date(Date.now() + 24 * 60 * 60 * 1000) : null,
+        },
+        t,
+      );
     // Never await SMTP in the transaction or its commit callback.
     t.afterCommit(() => {
       setImmediate(() => {
@@ -163,6 +191,9 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
       status: row.status,
       reason: row.reason,
       passwordSet: !!row.consumed_at,
+      ...(row.delivery_kind === 'APPROVAL_NOTICE'
+        ? { notificationOnly: true }
+        : {}),
       recipient: row.recipient
         ? row.recipient.replace(/^(.).*(@.*)$/, '$1***$2')
         : undefined,
@@ -171,16 +202,27 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
         !expired &&
         !row.revoked_at &&
         !row.consumed_at &&
-        !!row.token_ciphertext,
+        (row.delivery_kind === 'APPROVAL_NOTICE' || !!row.token_ciphertext),
     };
+  }
+  private async noticeSchema(t?: Transaction) {
+    const [row] = await this.query<{ ready: boolean }>(
+      `SELECT EXISTS(SELECT 1 FROM information_schema.columns WHERE table_schema='public'
+       AND table_name='onboarding_deliveries' AND column_name='delivery_kind') AS ready`,
+      {},
+      t,
+    );
+    return row?.ready === true;
   }
   async retry(applicationId: string, actor: string, t: Transaction) {
     if (!this.enabled()) throw new NotFoundException();
+    const notices = await this.noticeSchema(t);
     const rows = await this.query<Delivery>(
       `UPDATE public.onboarding_deliveries SET
       status='PENDING',reason=NULL,attempts=0,next_attempt_at=now(),retry_requested_by=:actor,retry_requested_at=now()
-      WHERE application_id=:id AND status='FAILED' AND expires_at>now()
-      AND consumed_at IS NULL AND revoked_at IS NULL AND token_ciphertext IS NOT NULL RETURNING *`,
+      WHERE application_id=:id AND status='FAILED'
+      AND (${notices ? "delivery_kind='APPROVAL_NOTICE' OR" : ''} (expires_at>now() AND token_ciphertext IS NOT NULL))
+      AND consumed_at IS NULL AND revoked_at IS NULL RETURNING *`,
       { id: applicationId, actor },
       t,
     );
@@ -206,12 +248,14 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
       await this
         .query(`UPDATE public.onboarding_deliveries SET status='FAILED',reason='RETRY_LIMIT',claim_id=NULL,lease_until=NULL
         WHERE status='PROCESSING' AND lease_until<=now() AND attempts>=5`);
+      const notices = await this.noticeSchema();
       const claim = randomUUID();
       const [row] = await this.query<Delivery>(
         `WITH candidate AS (
         SELECT id FROM public.onboarding_deliveries
         WHERE ((status='PENDING' AND next_attempt_at<=now()) OR (status='PROCESSING' AND lease_until<=now()))
-          AND attempts<5 AND expires_at>now() AND consumed_at IS NULL AND revoked_at IS NULL AND token_ciphertext IS NOT NULL
+          AND attempts<5 AND consumed_at IS NULL AND revoked_at IS NULL
+          AND (${notices ? "delivery_kind='APPROVAL_NOTICE' OR" : ''} (expires_at>now() AND token_ciphertext IS NOT NULL))
         ORDER BY next_attempt_at,id FOR UPDATE SKIP LOCKED LIMIT 1
       ) UPDATE public.onboarding_deliveries d SET status='PROCESSING',attempts=attempts+1,claim_id=:claim,
         lease_until=now()+interval '5 minutes' FROM candidate c WHERE d.id=c.id RETURNING d.*`,
@@ -228,8 +272,16 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
         return;
       }
       try {
-        const token = openToken(row.token_ciphertext!, row.id, config.key);
-        if (!TOKEN_PATTERN.test(token) || digest(token) !== row.token_hash)
+        const notificationOnly = row.delivery_kind === 'APPROVAL_NOTICE';
+        const token = notificationOnly
+          ? null
+          : openToken(row.token_ciphertext!, row.id, config.key);
+        if (
+          !notificationOnly &&
+          (!token ||
+            !TOKEN_PATTERN.test(token) ||
+            digest(token) !== row.token_hash)
+        )
           throw Error('INVALID_PAYLOAD');
         const login = `${config.origin}/login`,
           setup = `${config.origin}/setup-password#token=${token}`;
@@ -237,8 +289,12 @@ export class WelcomeEmailService implements OnModuleInit, OnModuleDestroy {
           to: row.recipient,
           messageId: `<welcome-${row.id}@${new URL(config.origin).hostname}>`,
           subject: 'ברוכים הבאים לעת לעשות — ההרשמה אושרה',
-          text: `ההרשמה שלכם אושרה. ברוכים הבאים לעת לעשות!\nלבחירת סיסמה: ${setup}\nהקישור אישי, חד־פעמי ותקף ל־24 שעות ממועד האישור. אין להעביר אותו לאחרים.\nלאחר בחירת הסיסמה יש להיכנס עם תעודת הזהות והסיסמה שבחרתם: ${login}\nאם הקישור פג או שלא ביקשתם להירשם, פנו למנהל הסניף.`,
-          html: `<html lang="he" dir="rtl"><body style="font-family:Arial,sans-serif;text-align:right;line-height:1.7;color:#302633"><div style="max-width:560px;margin:auto;padding:24px"><h2>ברוכים הבאים לעת לעשות!</h2><p>ההרשמה שלכם אושרה. שמחים שאתם איתנו.</p><p>בחרו סיסמה אישית באמצעות הקישור המאובטח:</p><p><a href="${setup}" style="display:inline-block;background:#4d284f;color:white;padding:12px 24px;border-radius:8px">בחירת סיסמה</a></p><p>הקישור אישי, חד־פעמי ותקף ל־24 שעות ממועד האישור. אין להעביר אותו לאחרים.</p><p>לאחר בחירת הסיסמה, היכנסו עם תעודת הזהות והסיסמה שבחרתם.</p><p><a href="${login}">כניסה למערכת</a></p><p>אם הקישור פג או שלא ביקשתם להירשם, פנו למנהל הסניף.</p></div></body></html>`,
+          text: notificationOnly
+            ? `ההרשמה שלכם אושרה. ברוכים הבאים לעת לעשות!\nלכניסה למערכת השתמשו בתעודת הזהות ובסיסמה שבחרתם בעת ההרשמה: ${login}\nאם אינכם זוכרים את הסיסמה או שלא ביקשתם להירשם, פנו למנהל הסניף.`
+            : `ההרשמה שלכם אושרה. ברוכים הבאים לעת לעשות!\nלבחירת סיסמה: ${setup}\nהקישור אישי, חד־פעמי ותקף ל־24 שעות ממועד האישור. אין להעביר אותו לאחרים.\nלאחר בחירת הסיסמה יש להיכנס עם תעודת הזהות והסיסמה שבחרתם: ${login}\nאם הקישור פג או שלא ביקשתם להירשם, פנו למנהל הסניף.`,
+          html: notificationOnly
+            ? `<html lang="he" dir="rtl"><body style="font-family:Arial,sans-serif;text-align:right;line-height:1.7"><h2>ברוכים הבאים לעת לעשות!</h2><p>ההרשמה שלכם אושרה.</p><p>לכניסה למערכת השתמשו בתעודת הזהות ובסיסמה שבחרתם בעת ההרשמה.</p><p><a href="${login}">כניסה למערכת</a></p><p>אם אינכם זוכרים את הסיסמה או שלא ביקשתם להירשם, פנו למנהל הסניף.</p></body></html>`
+            : `<html lang="he" dir="rtl"><body style="font-family:Arial,sans-serif;text-align:right;line-height:1.7;color:#302633"><div style="max-width:560px;margin:auto;padding:24px"><h2>ברוכים הבאים לעת לעשות!</h2><p>ההרשמה שלכם אושרה. שמחים שאתם איתנו.</p><p>בחרו סיסמה אישית באמצעות הקישור המאובטח:</p><p><a href="${setup}" style="display:inline-block;background:#4d284f;color:white;padding:12px 24px;border-radius:8px">בחירת סיסמה</a></p><p>הקישור אישי, חד־פעמי ותקף ל־24 שעות ממועד האישור. אין להעביר אותו לאחרים.</p><p>לאחר בחירת הסיסמה, היכנסו עם תעודת הזהות והסיסמה שבחרתם.</p><p><a href="${login}">כניסה למערכת</a></p><p>אם הקישור פג או שלא ביקשתם להירשם, פנו למנהל הסניף.</p></div></body></html>`,
         });
         const accepted = result.accepted.some(
           (x) => x.toLowerCase() === row.recipient!.toLowerCase(),

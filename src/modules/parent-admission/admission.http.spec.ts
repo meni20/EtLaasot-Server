@@ -326,6 +326,26 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
       );
     },
   );
+  it('sanitizes approval database failures before HTTP serialization', async () => {
+    service.approve.mockRejectedValueOnce({ name: 'SequelizeDatabaseError', sql: 'INSERT sensitive hash', parameters: ['$argon2id$private-value'] });
+    const result = await request(app.getHttpServer())
+      .post('/parent-applications/admin/00000000-0000-4000-8000-000000000001/approve')
+      .set('Authorization', 'Bearer fictional-admin')
+      .send({ expectedVersionId: '00000000-0000-4000-8000-000000000002', identityVerified: true })
+      .expect(503);
+    expect(JSON.stringify(result.body)).not.toMatch(/argon2id|private-value|INSERT|parameters/);
+  });
+  it.each([
+    { passwordHash: '$argon2id$untrusted' }, { mustChangePassword: false },
+    { temporaryPasswordExpiresAt: null }, { authentication: 'EXISTING_PASSWORD' },
+  ])('rejects each client-supplied credential/privilege override %j', async override => {
+    await request(app.getHttpServer())
+      .post('/parent-applications/admin/00000000-0000-4000-8000-000000000001/approve')
+      .set('Authorization', 'Bearer fictional-admin')
+      .send({ expectedVersionId: '00000000-0000-4000-8000-000000000002', identityVerified: true, ...override })
+      .expect(400);
+    expect(service.approve).not.toHaveBeenCalled();
+  });
   it('rejects caller-supplied approval status, user or branch overrides before provisioning', async () => {
     await request(app.getHttpServer())
       .post(
@@ -338,6 +358,9 @@ describe('Phase 4 HTTP authorization/abuse boundary (no database)', () => {
         status: 'APPROVED',
         branchId: 'other',
         userId: 'fake',
+        passwordHash: '$argon2id$untrusted',
+        mustChangePassword: false,
+        authentication: 'EXISTING_PASSWORD',
       })
       .expect(400);
     expect(service.approve).not.toHaveBeenCalled();
