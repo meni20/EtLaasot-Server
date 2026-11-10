@@ -20,7 +20,7 @@ export interface RegistrationRenderRequest {
     birthDate: string;
     healthFund: string;
     address: string;
-    phone: string;
+    phone?: string;
     siblings: number | null;
     gender: 'זכר' | 'נקבה';
     shirtSize?: string;
@@ -177,7 +177,7 @@ export function registrationRenderRequest(
     },
     physician: {
       name: m.physicianName!,
-      healthFund: m.physicianHealthFund!,
+      healthFund: m.physicianHealthFund ?? t.healthFund!,
       phone: m.physicianPhone!,
     },
     signatures: {

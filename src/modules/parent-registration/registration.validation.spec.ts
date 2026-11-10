@@ -165,3 +165,19 @@ describe('Parent registration data and signing policy (offline)', () => {
     }
   });
 });
+
+it('submits trainee without removed UI fields and preserves historical values', () => {
+  const previousKey = process.env.NATIONAL_ID_ENCRYPTION_KEY;
+  process.env.NATIONAL_ID_ENCRYPTION_KEY = randomBytes(32).toString('hex');
+  const data = fictionalRegistration(false);
+  delete data.trainee!.phone;
+  delete data.trainee!.pantsSize;
+  delete data.medical!.physicianHealthFund;
+  data.signatures!.parent1!.contentHash = contentHash(data);
+  expect(() => validateSubmission(data)).not.toThrow();
+  expect(readData(protectData(data))).toEqual(data);
+  const legacy = fictionalRegistration(false);
+  expect(readData(protectData(legacy))).toEqual(legacy);
+  if (previousKey === undefined) delete process.env.NATIONAL_ID_ENCRYPTION_KEY;
+  else process.env.NATIONAL_ID_ENCRYPTION_KEY = previousKey;
+});

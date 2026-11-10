@@ -22,8 +22,7 @@ describe('Phase 5 private integration safety (offline)', () => {
     'signature',
   ].join('.');
   const setDevDatabaseEnv = () => {
-    process.env.SUPABASE_URL =
-      'https://vlysppqfozfiwcmsyban.supabase.co';
+    process.env.SUPABASE_URL = 'https://vlysppqfozfiwcmsyban.supabase.co';
     process.env.SUPABASE_SERVICE_ROLE_KEY = serviceRoleKey;
     process.env.DB_HOST = 'aws-0-eu-central-1.pooler.supabase.com';
     process.env.DB_PORT = '5432';
@@ -233,4 +232,28 @@ describe('Phase 5 private integration safety (offline)', () => {
     expect(payload.signatures.parent2).toBeUndefined();
     expect(payload.parents.parent2).toBeUndefined();
   });
+});
+
+it('maps a single health fund for new drafts while preserving legacy physician details', () => {
+  const data = fictionalRegistration(false);
+  delete data.trainee!.phone;
+  delete data.trainee!.pantsSize;
+  delete data.medical!.physicianHealthFund;
+  const context = {
+    reference: 'version',
+    branch: 'test',
+    year: 'year',
+    date: '2026-11-10',
+  };
+  const payload = registrationRenderRequest(data, context, {
+    parent1: 'image',
+  });
+  expect(payload.physician.healthFund).toBe(data.trainee!.healthFund);
+  expect(payload.trainee.phone).toBeUndefined();
+  expect(payload.trainee.pantsSize).toBeUndefined();
+  data.medical!.physicianHealthFund = 'legacy clinic detail';
+  expect(
+    registrationRenderRequest(data, context, { parent1: 'image' }).physician
+      .healthFund,
+  ).toBe('legacy clinic detail');
 });
