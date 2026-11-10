@@ -40,8 +40,10 @@ const schema: Record<string, Rule> = {
     customShirtSize: 'text',
     motherName: 'name',
     motherPhone: 'phone',
+    motherPhoneNotApplicable: 'boolean',
     fatherName: 'name',
     fatherPhone: 'phone',
+    fatherPhoneNotApplicable: 'boolean',
   },
   questionnaire: {
     preference: ['משחקייה', 'חונכות בית', 'אחר'],
@@ -91,7 +93,16 @@ function shape(value: unknown, rule: Rule, path: string) {
       invalid(path);
     for (const [key, child] of Object.entries(value)) {
       if (!Object.hasOwn(rule, key)) invalid(`${path}.${key}`);
-      shape(child, rule[key], `${path}.${key}`);
+      shape(
+        child,
+        (key === 'motherPhone' &&
+          (value as any).motherPhoneNotApplicable === true) ||
+          (key === 'fatherPhone' &&
+            (value as any).fatherPhoneNotApplicable === true)
+          ? 'text'
+          : rule[key],
+        `${path}.${key}`,
+      );
     }
     return;
   }

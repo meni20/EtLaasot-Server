@@ -1,3 +1,4 @@
+import { retainParentApplicability } from '../parent-registration/registration.validation';
 import {
   VOLUNTEER_LEGAL,
   VOLUNTEER_AGREEMENT_VERSION,
@@ -162,6 +163,8 @@ export class AdmissionService {
                     agreements: { version: VOLUNTEER_AGREEMENT_VERSION },
                   })
                 : protectData({
+                    parent1: { notApplicable: false },
+                    parent2: { notApplicable: false },
                     trainee: { nationalId: identity.normalizedNationalId },
                   }),
           },
@@ -422,8 +425,9 @@ export class AdmissionService {
       next.trainee!.nationalId = getNationalIdDetails(
         next.trainee!.nationalId!,
       ).normalizedNationalId;
-      const previous = readData(app.draftData as RegistrationData),
-        hash = contentHash(next);
+      const previous = readData(app.draftData as RegistrationData);
+      retainParentApplicability(previous, next);
+      const hash = contentHash(next);
       if (branchChanged || hash !== contentHash(previous))
         delete next.signatures;
       for (const signing of Object.values(next.signatures ?? {}))
@@ -1083,7 +1087,11 @@ export class AdmissionService {
         const credential = await this.passwordForApproval(app, t);
         const profile = {
           ...approvedProfileMapping(data),
-          phoneNumber: data.trainee!.phone ?? data.parent1!.phone!,
+          phoneNumber:
+            data.trainee!.phone ??
+            (data.parent1?.notApplicable
+              ? data.parent2?.phone
+              : data.parent1?.phone)!,
           id: identity.normalizedNationalId,
           branchId: app.branchId,
           isActive: true,

@@ -27,7 +27,13 @@ export interface RegistrationRenderRequest {
     pantsSize?: string;
     email?: string;
   };
-  parents: { parent1?: RenderPerson; parent2?: RenderPerson; status?: string };
+  parents: {
+    parent1?: RenderPerson;
+    parent2?: RenderPerson;
+    parent1NotApplicable?: boolean;
+    parent2NotApplicable?: boolean;
+    status?: string;
+  };
   emergencyContact: { name: string; relationship: string; phone: string };
   education: {
     school?: string;
@@ -61,7 +67,7 @@ export interface RegistrationRenderRequest {
     other: string;
   };
   physician: { name: string; healthFund: string; phone: string };
-  signatures: { parent1: RenderSignature; parent2?: RenderSignature };
+  signatures: { parent1?: RenderSignature; parent2?: RenderSignature };
 }
 type RenderPerson = {
   name: string;
@@ -121,8 +127,19 @@ export function registrationRenderRequest(
       ...(t.email ? { email: t.email } : {}),
     },
     parents: {
-      parent1: parent(data.parent1!),
-      ...(data.parent2 && Object.values(data.parent2).some(Boolean)
+      ...(data.parent1?.notApplicable
+        ? {}
+        : { parent1: parent(data.parent1!) }),
+      ...(data.parent1?.notApplicable !== undefined ||
+      data.parent2?.notApplicable !== undefined
+        ? {
+            parent1NotApplicable: data.parent1?.notApplicable === true,
+            parent2NotApplicable: data.parent2?.notApplicable === true,
+          }
+        : {}),
+      ...(data.parent2 &&
+      !data.parent2.notApplicable &&
+      Object.values(data.parent2).some(Boolean)
         ? { parent2: parent(data.parent2) }
         : {}),
       status: c.familyStatus,
@@ -181,7 +198,9 @@ export function registrationRenderRequest(
       phone: m.physicianPhone!,
     },
     signatures: {
-      parent1: signature('parent1'),
+      ...(data.signatures?.parent1 && !data.parent1?.notApplicable
+        ? { parent1: signature('parent1') }
+        : {}),
       ...(data.signatures?.parent2 ? { parent2: signature('parent2') } : {}),
     },
   };

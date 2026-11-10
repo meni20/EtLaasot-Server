@@ -28,6 +28,7 @@ import {
   protectData,
   readData,
   validateDraft,
+  retainParentApplicability,
   validateSubmission,
 } from './registration.validation';
 import type { RegistrationData } from './registration.validation';
@@ -54,7 +55,8 @@ export function approvedProfileMapping(data: RegistrationData) {
     gender: t.gender,
     shirtSize: t.shirtSize,
     customShirtSize: t.shirtSize === 'OTHER' ? t.customShirtSize : null,
-    parentName: data.parent1!.name,
+    parentName: (data.parent1?.notApplicable ? data.parent2 : data.parent1)
+      ?.name,
     ...(t.email ? { email: t.email } : {}),
   };
 }
@@ -241,6 +243,7 @@ export class RegistrationService {
       this.revision(form, input.revision);
       const previous = readData(form.draftData);
       const next = structuredClone(input.data);
+      retainParentApplicability(previous, next);
       const hash = contentHash(next);
       // Signing is a separate autosave of the same content hash returned by GET/PATCH.
       // A content change always removes both signatures, even when supplied in this PATCH.
@@ -509,28 +512,28 @@ export class RegistrationService {
     // The first read yields only the owner ID; no signed data leaves the service.
     return this.observed('admin-transaction', () =>
       this.repo.transaction(async (t) => {
-      const initial = await this.observed('admin-form-reference', () =>
-        this.repo.formReference(formId, t),
-      );
-      this.auth.assertAdminForBranch(actor, initial.branchId);
-      const target = await this.observed('admin-trainee-lock', () =>
-        this.repo.lockTrainee(initial.traineeUuid, t),
-      );
-      if (!target.roles.some((role) => role.roleId === AUTH_ROLES.TRAINEE.id))
-        throw new ForbiddenException('Target must be a trainee');
-      this.auth.assertAdminForBranch(actor, target.user.branchId);
-      const form = await this.observed('admin-form', () =>
-        this.repo.form(formId, t),
-      );
-      if (this.integration?.enabled()) {
-        await this.observed('admin-attestation', () =>
-          this.integration!.attest(t),
+        const initial = await this.observed('admin-form-reference', () =>
+          this.repo.formReference(formId, t),
         );
-      }
-      this.auth.assertAdminForBranch(actor, form.branchId);
-      // Historical data requires authority over both historical and current branch.
-      this.auth.assertAdminForBranch(actor, target.user.branchId);
-      return this.observed('admin-work', () => work(form, target, t));
+        this.auth.assertAdminForBranch(actor, initial.branchId);
+        const target = await this.observed('admin-trainee-lock', () =>
+          this.repo.lockTrainee(initial.traineeUuid, t),
+        );
+        if (!target.roles.some((role) => role.roleId === AUTH_ROLES.TRAINEE.id))
+          throw new ForbiddenException('Target must be a trainee');
+        this.auth.assertAdminForBranch(actor, target.user.branchId);
+        const form = await this.observed('admin-form', () =>
+          this.repo.form(formId, t),
+        );
+        if (this.integration?.enabled()) {
+          await this.observed('admin-attestation', () =>
+            this.integration!.attest(t),
+          );
+        }
+        this.auth.assertAdminForBranch(actor, form.branchId);
+        // Historical data requires authority over both historical and current branch.
+        this.auth.assertAdminForBranch(actor, target.user.branchId);
+        return this.observed('admin-work', () => work(form, target, t));
       }),
     );
   }

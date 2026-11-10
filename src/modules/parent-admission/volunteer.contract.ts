@@ -30,8 +30,10 @@ export interface VolunteerData {
     customShirtSize?: string;
     motherName?: string;
     motherPhone?: string;
+    motherPhoneNotApplicable?: boolean;
     fatherName?: string;
     fatherPhone?: string;
+    fatherPhoneNotApplicable?: boolean;
   };
   questionnaire?: {
     preference?: 'משחקייה' | 'חונכות בית' | 'אחר';
@@ -172,7 +174,7 @@ export function volunteerIssues(
     'fatherName',
     'fatherPhone',
   ] as const)
-    if (!v[key]?.trim()) add(`volunteer.${key}`, 1);
+    if (!((key === 'motherPhone' && v.motherPhoneNotApplicable) || (key === 'fatherPhone' && v.fatherPhoneNotApplicable)) && !v[key]?.trim()) add(`volunteer.${key}`, 1);
   if (needsParent(data, today))
     for (const key of ['school', 'grade'] as const)
       if (!v[key]?.trim()) add(`volunteer.${key}`, 1);
@@ -200,7 +202,7 @@ export function volunteerIssues(
   )
     add('volunteer.dateOfBirth', 1, 'תאריך הלידה אינו תקין');
   for (const key of ['phone', 'motherPhone', 'fatherPhone'] as const)
-    if (v[key] && !/^[+\d() -]{5,30}$/.test(v[key]!))
+    if (!((key === 'motherPhone' && v.motherPhoneNotApplicable) || (key === 'fatherPhone' && v.fatherPhoneNotApplicable)) && v[key] && !/^[+\d() -]{5,30}$/.test(v[key]!))
       add(`volunteer.${key}`, 1, 'מספר הטלפון אינו תקין');
   for (const key of [
     'preference',

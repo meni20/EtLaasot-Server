@@ -111,6 +111,8 @@ export class ApplicationCredentialsService {
                     agreements: { version: VOLUNTEER_AGREEMENT_VERSION },
                   })
                 : protectData({
+                    parent1: { notApplicable: false },
+                    parent2: { notApplicable: false },
                     trainee: { nationalId: identity.normalizedNationalId },
                   }),
           },
