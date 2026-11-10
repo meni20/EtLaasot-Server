@@ -13,6 +13,7 @@ import {
 import type { ShirtSize } from '../user/interfaces/user.interface';
 
 export type Person = {
+  notApplicable?: boolean;
   name?: string;
   nationalId?: string;
   phone?: string;
@@ -107,8 +108,8 @@ const schema: Record<string, Rule> = {
     customShirtSize: 'size',
     pantsSize: 'text',
   },
-  parent1: person,
-  parent2: person,
+  parent1: { ...person, notApplicable: 'bool' },
+  parent2: { ...person, notApplicable: 'bool' },
   contacts: {
     familyStatus: 'text',
     emergencyName: 'text',
@@ -167,7 +168,13 @@ function shape(value: unknown, rule: Rule, path: string): void {
       fail(path);
     for (const [key, child] of Object.entries(value)) {
       if (!Object.hasOwn(rule, key)) fail(`${path}.${key}`);
-      shape(child, rule[key], `${path}.${key}`);
+      shape(
+        child,
+        key === 'phone' && (value as any).notApplicable === true
+          ? 'text'
+          : rule[key],
+        `${path}.${key}`,
+      );
     }
     return;
   }
@@ -243,8 +250,6 @@ export function validateSubmission(data: RegistrationData) {
     'trainee.healthFund': data.trainee?.healthFund,
     'trainee.school': data.trainee?.school,
     'trainee.shirtSize': data.trainee?.shirtSize,
-    'parent1.name': data.parent1?.name,
-    'parent1.phone': data.parent1?.phone,
     'contacts.familyStatus': data.contacts?.familyStatus,
     'contacts.emergencyName': data.contacts?.emergencyName,
     'contacts.emergencyRelationship': data.contacts?.emergencyRelationship,
@@ -297,9 +302,20 @@ export function validateSubmission(data: RegistrationData) {
     data.declarationAcceptances.some((x) => x !== true)
   )
     fail('declarationAcceptances');
+  const explicitParents =
+    data.parent1?.notApplicable !== undefined ||
+    data.parent2?.notApplicable !== undefined;
+  if (data.parent1?.notApplicable && data.parent2?.notApplicable)
+    fail('parent1.notApplicable');
   for (const parent of ['parent1', 'parent2'] as const) {
     const signing = data.signatures?.[parent];
-    if (parent === 'parent1' || signing) {
+    if (data[parent]?.notApplicable) {
+      if (signing) fail(`signatures.${parent}`);
+      continue;
+    }
+    if (explicitParents || parent === 'parent1' || signing) {
+      if (explicitParents || parent === 'parent1')
+        required(data[parent]?.phone, `${parent}.phone`);
       required(data[parent]?.name, `${parent}.name`);
       if (!isValidIsraeliNationalId(data[parent]?.nationalId ?? ''))
         fail(`${parent}.nationalId`);
@@ -316,6 +332,7 @@ export function validateSubmission(data: RegistrationData) {
       fail('parent2.nationalId');
   }
   if (
+    data.signatures?.parent1 &&
     data.signatures?.parent2 &&
     normalizeIsraeliNationalId(data.parent1!.nationalId!) ===
       normalizeIsraeliNationalId(data.parent2!.nationalId!)
@@ -353,3 +370,20 @@ export function protectData(
   return copy;
 }
 export const readData = (data: RegistrationData) => protectData(data, true);
+
+export function retainParentApplicability(
+  previous: RegistrationData,
+  next: RegistrationData,
+) {
+  if (
+    previous.parent1?.notApplicable === undefined &&
+    previous.parent2?.notApplicable === undefined
+  )
+    return;
+  for (const key of ['parent1', 'parent2'] as const)
+    next[key] = {
+      ...next[key],
+      notApplicable:
+        next[key]?.notApplicable ?? previous[key]?.notApplicable ?? false,
+    };
+}

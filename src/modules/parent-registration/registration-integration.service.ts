@@ -233,12 +233,23 @@ export class RegistrationIntegrationService {
     const prefix = `registration/application/${id}`;
     const paths: string[] = [];
     const visit = async (folder: string, depth: number) => {
-      if (depth > 4 || (folder !== prefix && !folder.startsWith(prefix + '/'))) this.fail('draft-erasure-path');
+      if (depth > 4 || (folder !== prefix && !folder.startsWith(prefix + '/')))
+        this.fail('draft-erasure-path');
       for (let offset = 0; ; offset += 100) {
-        const { data, error } = await store.list(folder, { limit: 100, offset, sortBy: { column: 'name', order: 'asc' } });
+        const { data, error } = await store.list(folder, {
+          limit: 100,
+          offset,
+          sortBy: { column: 'name', order: 'asc' },
+        });
         if (error || !data) this.fail('draft-erasure-list');
         for (const item of data) {
-          if (!item.name || /[\\/]/.test(item.name) || item.name === '..' || item.name === '.') this.fail('draft-erasure-path');
+          if (
+            !item.name ||
+            /[\\/]/.test(item.name) ||
+            item.name === '..' ||
+            item.name === '.'
+          )
+            this.fail('draft-erasure-path');
           const path = `${folder}/${item.name}`;
           if (item.id) paths.push(path);
           else await visit(path, depth + 1);
@@ -255,7 +266,8 @@ export class RegistrationIntegrationService {
       if (error) this.fail('draft-erasure-remove');
     }
     const remaining = await store.list(prefix, { limit: 1 });
-    if (remaining.error || !remaining.data || remaining.data.length) this.fail('draft-erasure-verification');
+    if (remaining.error || !remaining.data || remaining.data.length)
+      this.fail('draft-erasure-verification');
   }
   async inspect(bytes: Buffer, kind: Kind) {
     if (!bytes?.length || bytes.length > MAX)
@@ -421,7 +433,9 @@ export class RegistrationIntegrationService {
       throw new BadRequestException('Invalid attachment owner or signer');
     if (
       kind === 'SIGNATURE' &&
-      (!data[signer!]?.name || !data[signer!]?.nationalId)
+      (data[signer!]?.notApplicable ||
+        !data[signer!]?.name ||
+        !data[signer!]?.nationalId)
     )
       throw new BadRequestException('Save the signing parent identity first');
     const info = await this.inspect(bytes, kind);
