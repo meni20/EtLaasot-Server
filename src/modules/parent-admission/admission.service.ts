@@ -1083,7 +1083,7 @@ export class AdmissionService {
         const credential = await this.passwordForApproval(app, t);
         const profile = {
           ...approvedProfileMapping(data),
-          phoneNumber: data.trainee!.phone!,
+          phoneNumber: data.trainee!.phone ?? data.parent1!.phone!,
           id: identity.normalizedNationalId,
           branchId: app.branchId,
           isActive: true,
