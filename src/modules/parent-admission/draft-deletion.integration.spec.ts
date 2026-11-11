@@ -66,7 +66,7 @@ integration('Permanent draft deletion — isolated real PostgreSQL', () => {
       { logging: false },
     );
     for (const name of readdirSync('migrations')
-      .filter((n) => /^03[0-8]_/.test(n))
+      .filter((n) => /^(03[0-9]|04[0-2])_/.test(n))
       .sort())
       await db.query(readFileSync('migrations/' + name, 'utf8'), {
         logging: false,
@@ -393,4 +393,73 @@ integration('Permanent draft deletion — isolated real PostgreSQL', () => {
     await begin(id);
     expect((await claim(randomUUID()))[0].value).toBe(id);
   });
+
+  it.each(['TRAINEE', 'VOLUNTEER'])(
+    'retries a failed %s deletion and removes only that draft’s password state',
+    async (type) => {
+      const { id, hash, file } = await seed(type);
+      const unrelated = await seed();
+      for (const draft of [{ id, hash }, unrelated]) {
+        const revision = randomUUID();
+        await q(
+          "INSERT INTO public.application_credentials(application_id,national_id_hash,password_hash,login_email) VALUES(:id,:hash,'$argon2id$synthetic','synthetic@example.test')",
+          draft,
+        );
+        await q(
+          "INSERT INTO public.password_recovery_bindings(application_id,national_id_hash,recipient,revision,authorized_by,authorized_until) VALUES(:id,:hash,'synthetic@example.test',:revision,:manager,now()+interval '30 minutes')",
+          { ...draft, revision, manager },
+        );
+        await q(
+          "INSERT INTO public.password_reset_challenges(token_digest,application_id,national_id_hash,recipient,binding_revision,credential_digest) VALUES(:hash,:id,:hash,'synthetic@example.test',:revision,:hash)",
+          { ...draft, revision },
+        );
+      }
+      await begin(id);
+      const initialClaim = randomUUID();
+      await claim(initialClaim);
+      await q(
+        "UPDATE public.registration_draft_deletions SET lease_until=now()-interval '1 second',attempts=5 WHERE application_id=:id",
+        { id },
+      );
+      expect((await claim(randomUUID()))[0].value).toBeNull();
+      await expect(begin(id, other)).rejects.toMatchObject({
+        original: { code: '42501' },
+      });
+      await begin(id);
+      const retryClaim = randomUUID();
+      expect((await claim(retryClaim))[0].value).toBe(id);
+      await expect(finish(id, initialClaim)).rejects.toThrow('lease expired');
+      await q(
+        "INSERT INTO storage.objects(bucket_id,name) VALUES('trainee-documents',:file)",
+        { file },
+      );
+      await expect(finish(id, retryClaim)).rejects.toThrow('Storage cleanup');
+      expect(
+        await q(
+          'SELECT application_id FROM public.application_credentials WHERE application_id=:id',
+          { id },
+        ),
+      ).toEqual([{ application_id: id }]);
+      await q('DELETE FROM storage.objects WHERE name=:file', { file });
+      await finish(id, retryClaim);
+      for (const table of [
+        'application_credentials',
+        'password_recovery_bindings',
+        'password_reset_challenges',
+      ]) {
+        expect(await q(`SELECT application_id FROM public.${table}`)).toEqual([
+          { application_id: unrelated.id },
+        ]);
+      }
+      expect(await q('SELECT id FROM public.trainee_applications')).toEqual([
+        { id: unrelated.id },
+      ]);
+      expect(
+        await q(
+          'SELECT status FROM public.registration_draft_deletions WHERE application_id=:id',
+          { id },
+        ),
+      ).toEqual([{ status: 'COMPLETE' }]);
+    },
+  );
 });
