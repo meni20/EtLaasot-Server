@@ -1241,6 +1241,7 @@ export class AdmissionService {
       {
         status: 'APPROVED',
         provisionedUserId: result.user.id,
+        approvedActivityYearId: await this.repo.currentYear(t),
         reviewedBy: this.auth.getActorId(actor),
         reviewedAt: new Date(),
         feedbackReason: null,

@@ -11,6 +11,7 @@ import {
   Min,
 } from 'class-validator';
 import { Transform } from 'class-transformer';
+import type { VolunteerData } from '../parent-admission/volunteer.contract';
 import type { RegistrationData } from './registration.validation';
 
 export class DraftDto {
@@ -18,6 +19,11 @@ export class DraftDto {
   @IsInt() @Min(1) @Max(5) currentStep: number;
   // Full partial draft replacement, not a recursive merge. Omitted fields are removed.
   @IsObject() data: RegistrationData;
+}
+export class VolunteerRenewalDraftDto {
+  @IsInt() @Min(0) revision: number;
+  @IsInt() @Min(1) @Max(5) currentStep: number;
+  @IsObject() data: VolunteerData;
 }
 export class SubmitDto {
   @IsUUID('4') formId: string;
@@ -45,7 +51,7 @@ export class FormListDto {
   @IsOptional() @IsString() @Length(1, 50) branchId?: string;
   @IsOptional() @IsUUID('4') activityYearId?: string;
   @IsOptional()
-  @IsIn(['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED'])
+  @IsIn(['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'APPROVED', 'REJECTED'])
   status?: string;
   @IsOptional() @IsInt() @Min(1) page: number = 1;
   @IsOptional() @IsInt() @Min(1) @Max(100) pageSize: number = 25;

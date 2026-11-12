@@ -1,3 +1,4 @@
+import type { VolunteerPurpose } from '../parent-admission/volunteer.contract';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import {
@@ -25,6 +26,7 @@ import {
   ReasonDto,
   RenewDto,
   SubmitDto,
+  VolunteerRenewalDraftDto,
 } from './registration.dto';
 import {
   RegistrationErrorInterceptor,
@@ -40,6 +42,35 @@ import { AllowRegistrationAccess } from './registration-request-access';
 @UseInterceptors(RegistrationErrorInterceptor)
 export class RegistrationController {
   constructor(private readonly service: RegistrationService) {}
+  @Get('me/volunteer/status')
+  volunteerStatus(@Req() req: RegistrationRequest) {
+    return this.service.volunteerStatus(req.user);
+  }
+  @Get('me/volunteer')
+  volunteer(@Req() req: RegistrationRequest) {
+    return this.service.volunteerRenewal(req.user);
+  }
+  @Patch('me/volunteer')
+  volunteerDraft(@Req() req: RegistrationRequest, @Body() input: VolunteerRenewalDraftDto) {
+    return this.service.volunteerRenewal(req.user, input);
+  }
+  @Post('me/volunteer/submit')
+  volunteerSubmit(@Req() req: RegistrationRequest, @Body() input: SubmitDto) {
+    return this.service.submitVolunteerRenewal(req.user, input);
+  }
+  @Post('me/volunteer/attachments/:kind')
+  @UseInterceptors(FileInterceptor('file', {
+    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3 },
+  }))
+  volunteerAttachment(
+    @Req() req: RegistrationRequest,
+    @Param('kind') kind: string,
+    @Body('revision', ParseIntPipe) revision: number,
+    @Body('signer') purpose: VolunteerPurpose | undefined,
+    @UploadedFile() file: Express.Multer.File,
+  ) {
+    return this.service.uploadVolunteerRenewal(req.user, revision, kind, file?.buffer, purpose);
+  }
   @Get('me/status') status(@Req() req: RegistrationRequest) {
     return this.service.status(req.user);
   }
@@ -115,6 +146,18 @@ export class RegistrationController {
   ) {
     return this.service.openPeriod(req.user, input);
   }
+  @Get('admin/periods/status') periodStatus(
+    @Req() req: RegistrationRequest,
+    @Query() input: OpenPeriodDto,
+  ) {
+    return this.service.period(req.user, input);
+  }
+  @Post('admin/periods/close') close(
+    @Req() req: RegistrationRequest,
+    @Body() input: OpenPeriodDto,
+  ) {
+    return this.service.closePeriod(req.user, input);
+  }
   @Get('admin/forms') list(
     @Req() req: RegistrationRequest,
     @Query() input: FormListDto,
@@ -140,6 +183,13 @@ export class RegistrationController {
     @Body() input: ReasonDto,
   ) {
     return this.service.requestChanges(req.user, id, input.reason);
+  }
+  @Post('admin/forms/:formId/reject') reject(
+    @Req() req: RegistrationRequest,
+    @Param('formId', new ParseUUIDPipe({ version: '4' })) id: string,
+    @Body() input: ReasonDto,
+  ) {
+    return this.service.reject(req.user, id, input.reason);
   }
   @Post('admin/trainees/:traineeId/renew') renew(
     @Req() req: RegistrationRequest,

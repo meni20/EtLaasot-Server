@@ -105,7 +105,9 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
       formData: protectVolunteerData(data), contentHash: volunteerContentHash(data),
       templateVersion: VOLUNTEER_TEMPLATE_VERSION, declarationVersion: policy.declarationVersion, declarations: [...policy.declarations] };
     let created = false;
+    const approvalYearId = randomUUID();
     const repo = { lockApplicantSession: jest.fn(), transaction: async (work: any) => work(t), application: async () => app,
+      currentYear: jest.fn(async () => approvalYearId),
       versions: async () => [latest], evidence: async () => [{ kind: 'REGISTRATION_PDF', registrationType: 'VOLUNTEER', versionId: latest.id,
         contentHash: latest.contentHash, templateVersion: VOLUNTEER_TEMPLATE_VERSION, sourceChecksum: VOLUNTEER_SOURCE_SHA256,
         generatedAt: new Date(), verifiedAt: new Date(), mimeType: 'application/pdf', fileSize: 100, checksum: 'a'.repeat(64) }],
@@ -117,6 +119,8 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
     const service = new AdmissionService(repo as never, new AuthorizationService(), users as never, {} as never, integration as never, welcome as never);
     const actor = { userId: actorId, roles: [{ roleId: 10000, branchId: app.branchId }] };
     const result = await service.approve(actor, id, latest.id, true);
+    expect(repo.currentYear).toHaveBeenCalledWith(t);
+    expect(app.approvedActivityYearId).toBe(approvalYearId);
     expect(users.createUserWithRole).toHaveBeenCalledWith(expect.objectContaining({ branchId: app.branchId }), t);
     expect(welcome.enqueue).toHaveBeenCalledWith(expect.objectContaining({ applicationId: id, userId, email: data.volunteer?.email, authorized: true }), t);
     expect(result.temporaryPassword).toBe('fictional-manual-secret');
@@ -125,18 +129,13 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
   } finally { process.env = original; global.structuredClone = clone; }
 });
 describe('Volunteer source, validation and independent signing scopes (offline)', () => {
-  it('keeps the portable Client contract byte-identical', () => {
-    expect(
-      fs.readFileSync(
-        path.resolve(
-          __dirname,
-          '../../../../EtLaasot-Client/src/features/volunteer-registration/contracts.ts',
-        ),
-        'utf8',
-      ),
-    ).toBe(
-      fs.readFileSync(path.join(__dirname, 'volunteer.contract.ts'), 'utf8'),
-    );
+  it('keeps the portable Client contract identical across checkout line endings', () => {
+    const clientRoot = process.env.VOLUNTEER_CONTRACT_CLIENT_ROOT ??
+      path.resolve(__dirname, '../../../../EtLaasot-Client');
+    const readContract = (file: string) =>
+      fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+    expect(readContract(path.join(clientRoot, 'src/features/volunteer-registration/contracts.ts')))
+      .toBe(readContract(path.join(__dirname, 'volunteer.contract.ts')));
   });
   it('retains source-specific wording, confidentiality and the original missing question number', () => {
     const template = JSON.parse(

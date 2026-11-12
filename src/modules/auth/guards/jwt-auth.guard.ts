@@ -8,10 +8,9 @@ import {
 import { AuthGuard } from '@nestjs/passport';
 import { ALLOW_PASSWORD_CHANGE_REQUIRED } from '../decorators/allow-password-change-required.decorator';
 import {
-  onlyTrainee,
+  requiresRegistrationAccessCheck,
   RegistrationRequestAccess,
 } from '../../parent-registration/registration-request-access';
-import { getBooleanEnv } from '../../../config/env.util';
 
 @Injectable()
 export class JwtAuthGuard extends AuthGuard('jwt') {
@@ -32,8 +31,7 @@ export class JwtAuthGuard extends AuthGuard('jwt') {
     }
 
     if (
-      getBooleanEnv('PARENT_REGISTRATION_BLOCKING_ENABLED', false) &&
-      onlyTrainee(request.user) &&
+      requiresRegistrationAccessCheck(request.user) &&
       !this.registrationAccess
     ) {
       throw new ServiceUnavailableException(

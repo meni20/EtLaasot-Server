@@ -24,6 +24,7 @@ export const ACTIVE_STATUSES = [
   'DRAFT',
   'PENDING_REVIEW',
   'CHANGES_REQUESTED',
+  'REJECTED',
 ] as const;
 export type TraineeFormStatus = (typeof ACTIVE_STATUSES)[number] | 'APPROVED';
 export type TraineeFormPdf = {
@@ -380,6 +381,12 @@ export class RegistrationRepository {
       { transaction: t },
     );
   }
+  period(branchId: string, activityYearId: string, t?: Transaction) {
+    return BranchRegistrationPeriod.findOne({
+      where: { branchId, activityYearId },
+      transaction: t,
+    });
+  }
   async openPeriod(
     branchId: string,
     activityYearId: string,
@@ -392,31 +399,35 @@ export class RegistrationRepository {
     });
     if (!branch?.isActive)
       throw new NotFoundException('Active branch not found');
-    const existing = await BranchRegistrationPeriod.findOne({
-      where: { branchId, activityYearId },
-      transaction: t,
-    });
-    if (existing) {
-      if (existing.status !== 'OPEN')
-        throw new ConflictException(
-          'Closed periods require a separate reopening policy',
+    const existing = await this.period(branchId, activityYearId, t);
+    if (existing?.status === 'OPEN') return existing;
+    const opening = {
+      status: 'OPEN',
+      openedBy: actor,
+      openedAt: new Date(),
+      closedAt: null,
+    };
+    const period = existing
+      ? await existing.update(opening, { transaction: t })
+      : await BranchRegistrationPeriod.create(
+          { branchId, activityYearId, ...opening },
+          { transaction: t },
         );
-      return existing;
-    }
-    const period = await BranchRegistrationPeriod.create(
-      {
-        branchId,
-        activityYearId,
-        status: 'OPEN',
-        openedBy: actor,
-        openedAt: new Date(),
-      },
-      { transaction: t },
-    );
     await this.history(actor, 'ANNUAL_REGISTRATION_OPENED', t, {
       periodId: period.id,
     });
     return period;
+  }
+  async closePeriod(branchId: string, activityYearId: string, t: Transaction) {
+    // Serialize closing and opening on the same branch lock.
+    await Branch.findByPk(branchId, { transaction: t, lock: t.LOCK.UPDATE });
+    const period = await this.period(branchId, activityYearId, t);
+    if (period?.status === 'OPEN')
+      await period.update(
+        { status: 'CLOSED', closedAt: new Date() },
+        { transaction: t },
+      );
+    return { status: 'CLOSED' };
   }
   async list(filters: {
     branchIds?: string[];
@@ -441,6 +452,7 @@ export class RegistrationRepository {
         'branchId',
         'activityYearId',
         'requestType',
+        'registrationType',
         'status',
         'documentStatus',
         'submittedAt',

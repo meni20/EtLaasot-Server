@@ -7,6 +7,8 @@ import {
 } from './registration.service';
 import { contentHash, protectData, readData } from './registration.validation';
 import { fictionalRegistration } from './registration.test-fixtures';
+import { getNationalIdDetails } from '../user/national-id.util';
+import { protectVolunteerData } from '../parent-admission/volunteer.validation';
 
 describe('Parent registration lifecycle (offline repository doubles)', () => {
   const trainee = randomUUID(),
@@ -125,6 +127,8 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
       history: jest.fn(async () => undefined),
       openYear: jest.fn(),
       openPeriod: jest.fn(),
+      closePeriod: jest.fn(),
+      period: jest.fn(),
       list: jest.fn(),
       years: jest.fn(),
     };
@@ -281,6 +285,12 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
         }),
       ).toThrow();
       expect(() =>
+        service.closePeriod(actors[key], { branchId: 'a', activityYearId: year }),
+      ).toThrow();
+      await expect(
+        service.period(actors[key], { branchId: 'a', activityYearId: year }),
+      ).rejects.toThrow();
+      expect(() =>
         service.renew(actors[key], trainee, {
           branchId: 'a',
           activityYearId: year,
@@ -290,6 +300,57 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
       ).toThrow();
     },
   );
+  it('reads and closes the same branch and year period for an authorized manager', async () => {
+    repo.period.mockResolvedValue({ status: 'OPEN' });
+    const scope = { branchId: 'a', activityYearId: year };
+    await expect(service.period(actors.admin, scope)).resolves.toEqual({ status: 'OPEN' });
+    expect(repo.period).toHaveBeenCalledWith('a', year);
+    await service.closePeriod(actors.admin, scope);
+    expect(repo.closePeriod).toHaveBeenCalledWith('a', year, expect.anything());
+  });
+  it('submits, returns, resubmits and approves a volunteer renewal without updating or provisioning the user', async () => {
+    const secret = process.env.NATIONAL_ID_HASH_SECRET;
+    const flag = process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED;
+    process.env.NATIONAL_ID_HASH_SECRET = 'fictional-renewal-test';
+    process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED = 'true';
+    try {
+      user.nationalIdHash = getNationalIdDetails('123456782').nationalIdHash;
+      const volunteer = { userId: trainee, roles: [{ roleId: 1 }] };
+      repo.lockTrainee.mockResolvedValue({ user, roles: volunteer.roles });
+      form.registrationType = 'VOLUNTEER';
+      form.draftData = protectVolunteerData({ volunteer: { nationalId: '123456782' } });
+      const integration = {
+        enabled: () => true, attest: jest.fn(), verifyVolunteerSigned: jest.fn(),
+        generate: jest.fn(), download: jest.fn(),
+      };
+      service = new RegistrationService(repo, new AuthorizationService(),
+        new DeferredRegistrationDocumentGenerator(), integration as never);
+      const input = { formId, revision: form.draftRevision, idempotencyKey: randomUUID() };
+      const first = await service.submitVolunteerRenewal(volunteer, input);
+      expect(first.application.status).toBe('PENDING_REVIEW');
+      expect((await service.volunteerStatus(volunteer)).required).toBe(true);
+      expect(integration.verifyVolunteerSigned).toHaveBeenCalledWith(formId, expect.anything(), docs, expect.anything(), undefined, 'renewal');
+      await expect(service.requestChanges(actors.otherAdmin, formId, 'Reason')).rejects.toThrow();
+      await service.requestChanges(actors.admin, formId, 'Please correct');
+      const second = await service.submitVolunteerRenewal(volunteer, { ...input, revision: form.draftRevision, idempotencyKey: randomUUID() });
+      expect(second.versionNumber).toBe(2);
+      docs.push({ id: randomUUID(), versionId: second.versionId, kind: 'REGISTRATION_PDF',
+        mimeType: 'application/pdf', verifiedAt: new Date(), fileSize: 10, checksum: 'a'.repeat(64),
+        registrationType: 'VOLUNTEER', contentHash: versions[0].signingMetadata.contentHash });
+      await expect(service.approve(actors.admin, formId, first.versionId)).rejects.toThrow();
+      await service.approve(actors.admin, formId, second.versionId);
+      expect(form.status).toBe('APPROVED');
+      expect(user.update).not.toHaveBeenCalled();
+      repo.active.mockResolvedValue(null);
+      annual = null;
+      expect((await service.volunteerStatus(volunteer)).required).toBe(false);
+    } finally {
+      if (secret === undefined) delete process.env.NATIONAL_ID_HASH_SECRET;
+      else process.env.NATIONAL_ID_HASH_SECRET = secret;
+      if (flag === undefined) delete process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED;
+      else process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED = flag;
+    }
+  });
   it('applies admin scope on lists and accepts super admin', async () => {
     service.list(actors.admin, { page: 1, pageSize: 25 });
     expect(repo.list).toHaveBeenLastCalledWith(
@@ -326,6 +387,26 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
       service.approve(actors.admin, formId, versions[0].id),
     ).rejects.toThrow('verified in private storage');
     expect(user.update).not.toHaveBeenCalled();
+  });
+  it('keeps rejected annual renewals blocked and preserves signed evidence until a manager returns them for corrections', async () => {
+    form.requestType = 'YEARLY';
+    form.blocksAccess = true;
+    await service.submit(actors.trainee, submit());
+    expect(form.status).toBe('PENDING_REVIEW');
+    const submittedVersion = structuredClone(versions[0]);
+    await expect(service.reject(actors.otherAdmin, formId, 'Reason')).rejects.toThrow();
+    expect(() => service.reject(actors.admin, formId, '  ')).toThrow();
+    await expect(service.reject(actors.admin, formId, 'Reason')).resolves.toMatchObject({
+      status: 'REJECTED',
+      blocksAccess: true,
+    });
+    annual = null; // A closed branch period must not release an existing blocker.
+    await expect(service.status(actors.trainee)).resolves.toMatchObject({ wouldBlockAccess: true });
+    await expect(service.approve(actors.admin, formId, submittedVersion.id)).rejects.toThrow();
+    await service.requestChanges(actors.admin, formId, 'Please correct');
+    expect(form.status).toBe('CHANGES_REQUESTED');
+    expect(form.blocksAccess).toBe(true);
+    expect(versions[0]).toEqual(submittedVersion);
   });
   it('maps approved fields in the same transaction without writing medical records', async () => {
     await service.submit(actors.trainee, submit());

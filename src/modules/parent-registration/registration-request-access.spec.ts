@@ -22,6 +22,8 @@ describe('Live renewal enforcement without cached JWT decisions (offline)', () =
     process.env.PARENT_REGISTRATION_ENABLED = 'true';
     process.env.PARENT_REGISTRATION_BLOCKING_ENABLED = 'true';
     delete process.env.PARENT_ADMISSION_SCHEMA_READY;
+    delete process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED;
+    delete process.env.VOLUNTEER_ANNUAL_RENEWAL_BLOCKING_ENABLED;
     db = { query: jest.fn(async () => [{ required: false }]) };
     access = new RegistrationRequestAccess(db);
   });
@@ -42,6 +44,22 @@ describe('Live renewal enforcement without cached JWT decisions (offline)', () =
     expect(db.query).toHaveBeenCalledTimes(2);
     expect(db.query.mock.calls[1][0]).toContain("p.status='OPEN'");
     expect(db.query.mock.calls[1][0]).toContain("f.status='APPROVED'");
+  });
+  it('can restrict volunteer renewals while leaving the trainee blocking flag off', async () => {
+    process.env.PARENT_REGISTRATION_BLOCKING_ENABLED = 'false';
+    process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED = 'true';
+    process.env.VOLUNTEER_ANNUAL_RENEWAL_BLOCKING_ENABLED = 'true';
+    process.env.PARENT_ADMISSION_SCHEMA_READY = 'true';
+    const volunteer = { userId: 'fictional-volunteer', roles: [{ roleId: 1 }] };
+    await expect(access.assertRequest(context())).resolves.toBeUndefined();
+    expect(db.query).not.toHaveBeenCalled();
+    db.query.mockResolvedValue([{ required: true }]);
+    await expect(access.assertRequest(context(volunteer))).rejects.toMatchObject({
+      response: { code: 'PARENT_REGISTRATION_REQUIRED' },
+    });
+    expect(db.query.mock.calls[0][0]).toContain('approved_activity_year_id=y.id');
+    db.query.mockResolvedValue([{ required: false }]);
+    await expect(access.assertRequest(context(volunteer))).resolves.toBeUndefined();
   });
   it('includes blocking individual requests and permits nonblocking requests', async () => {
     await access.assertRequest(context());
@@ -108,18 +126,18 @@ describe('Live renewal enforcement without cached JWT decisions (offline)', () =
       });
     },
   );
-  it('blocks drafts, submissions and corrections until approval, checking the database each time', async () => {
-    for (const state of ['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED']) {
+  it('blocks drafts, submissions, corrections and rejections until approval, checking the database each time', async () => {
+    for (const state of ['DRAFT', 'PENDING_REVIEW', 'CHANGES_REQUESTED', 'REJECTED']) {
       db.query.mockResolvedValue([{ required: true }]);
       await expect(access.assertRequest(context())).rejects.toMatchObject({
         status: 403,
         response: { code: 'PARENT_REGISTRATION_REQUIRED' },
       });
-      expect(db.query.mock.calls.at(-1)[0]).toContain(`'${state}'`);
+      expect(db.query.mock.calls.at(-1)[1].replacements.activeStatuses).toContain(state);
     }
     db.query.mockResolvedValue([{ required: false }]);
     await expect(access.assertRequest(context())).resolves.toBeUndefined();
-    expect(db.query).toHaveBeenCalledTimes(4);
+    expect(db.query).toHaveBeenCalledTimes(5);
   });
   it('does not query Phase 4 tables before the explicit schema-ready marker', async () => {
     await access.assertRequest(context());
