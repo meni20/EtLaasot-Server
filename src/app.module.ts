@@ -16,6 +16,7 @@ import { DashboardModule } from './modules/dashboard/dashboard.module';
 import { FeedbackModule } from './modules/feedback/feedback.module';
 import { TraineeMedicationModule } from './modules/trainee-medication/trainee-medication.module';
 import { TraineeDocumentModule } from './modules/trainee-document/trainee-document.module';
+import { discountRequestModules } from './modules/discount-request/discount-request.module';
 import { PwaInstallationModule } from './modules/pwa-installation/pwa-installation.module';
 import { PushNotificationModule } from './modules/push-notification/push-notification.module';
 import { registrationFeatureModules } from './modules/parent-registration/parent-registration.module';
@@ -149,6 +150,7 @@ const getDbDialectOptions = () => {
     FeedbackModule,
     TraineeMedicationModule,
     TraineeDocumentModule,
+    ...discountRequestModules(),
     PwaInstallationModule,
     PushNotificationModule,
     // No models/routes or schema sync for this feature until explicitly enabled.

@@ -459,6 +459,14 @@ export class RegistrationRepository {
         'approvedAt',
         'createdAt',
       ],
+      include: [{
+        association: 'trainee',
+        attributes: ['name'],
+        required: false,
+        ...(filters.branchIds
+          ? { where: { branchId: { [Op.in]: filters.branchIds } } }
+          : {}),
+      }],
       order: [
         ['createdAt', 'DESC'],
         ['id', 'DESC'],
@@ -494,11 +502,15 @@ export class RegistrationRepository {
     );
     return {
       count: result.count,
-      rows: result.rows.map((row) => ({
-        ...row.get({ plain: true }),
-        pdfDocumentId:
-          row.documentStatus === 'READY' ? (pdfByForm.get(row.id) ?? null) : null,
-      })),
+      rows: result.rows.map((row) => {
+        const { trainee, ...form } = row.get({ plain: true });
+        return {
+          ...form,
+          userName: trainee?.name?.trim() || null,
+          pdfDocumentId:
+            row.documentStatus === 'READY' ? (pdfByForm.get(row.id) ?? null) : null,
+        };
+      }),
     };
   }
 }

@@ -1,6 +1,8 @@
 import { Injectable, ServiceUnavailableException } from '@nestjs/common';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
 import { randomUUID } from 'crypto';
+import WebSocket from 'ws';
+import type { WebSocketLikeConstructor } from '@supabase/realtime-js';
 import { isUUID } from 'class-validator';
 import { getRequiredEnv } from 'src/config/env.util';
 import {
@@ -21,6 +23,9 @@ export class TraineeDocumentStorageService {
           getRequiredEnv('SUPABASE_SERVICE_ROLE_KEY'),
           {
             auth: { persistSession: false, autoRefreshToken: false },
+            realtime: {
+              transport: WebSocket as unknown as WebSocketLikeConstructor,
+            },
           },
         );
       } catch {
@@ -32,10 +37,12 @@ export class TraineeDocumentStorageService {
     return this.client;
   }
 
-  private async privateBucket() {
+  private async privateBucket(path: string) {
     try {
       const client = this.getClient();
-      const bucket = getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
+      const bucket = path.startsWith('discount/')
+        ? 'discount-request-private'
+        : getRequiredEnv('SUPABASE_TRAINEE_DOCUMENTS_BUCKET');
       const { data, error } = await client.storage.getBucket(bucket);
       // Fail closed if an operator accidentally makes this bucket public.
       if (error || !data || data.public !== false) throw new Error();
@@ -58,6 +65,38 @@ export class TraineeDocumentStorageService {
     return `${traineeUuid}/${type}/${randomUUID()}.${extension}`;
   }
 
+  buildDiscountPath(traineeUuid: string, extension: string) {
+    const path = `discount/${traineeUuid}/${randomUUID()}.${extension}`;
+    this.assertDiscountPath(path);
+    return path;
+  }
+
+  private assertDiscountPath(path: string) {
+    const parts = path.split('/');
+    const file = parts[2]?.match(/^([0-9a-f-]+)\.(jpg|png|webp|pdf)$/);
+    if (
+      parts.length !== 3 ||
+      parts[0] !== 'discount' ||
+      !isUUID(parts[1], '4') ||
+      !file ||
+      !isUUID(file[1], '4')
+    ) {
+      throw new ServiceUnavailableException('Invalid document storage key');
+    }
+  }
+
+  async downloadDiscount(path: string) {
+    this.assertDiscountPath(path);
+    try {
+      const bucket = await this.privateBucket(path);
+      const { data, error } = await bucket.download(path);
+      if (error || !data) throw new Error();
+      return Buffer.from(await data.arrayBuffer());
+    } catch {
+      throw new ServiceUnavailableException('Failed to open document');
+    }
+  }
+
   private assertPath(path: string) {
     const parts = path.split('/');
     const file = parts[2]?.match(/^([0-9a-f-]+)\.(jpg|png|webp|pdf)$/);
@@ -73,9 +112,10 @@ export class TraineeDocumentStorageService {
   }
 
   async upload(path: string, buffer: Buffer, mimeType: string) {
-    this.assertPath(path);
+    if (path.startsWith('discount/')) this.assertDiscountPath(path);
+    else this.assertPath(path);
     try {
-      const bucket = await this.privateBucket();
+      const bucket = await this.privateBucket(path);
       const { error } = await bucket.upload(path, buffer, {
         contentType: mimeType,
         upsert: false,
@@ -88,9 +128,10 @@ export class TraineeDocumentStorageService {
   }
 
   async remove(path: string) {
-    this.assertPath(path);
+    if (path.startsWith('discount/')) this.assertDiscountPath(path);
+    else this.assertPath(path);
     try {
-      const bucket = await this.privateBucket();
+      const bucket = await this.privateBucket(path);
       const { error } = await bucket.remove([path]);
       if (error) throw new Error();
     } catch {
@@ -104,7 +145,7 @@ export class TraineeDocumentStorageService {
       Date.now() + DOCUMENT_URL_TTL_SECONDS * 1000,
     ).toISOString();
     try {
-      const bucket = await this.privateBucket();
+      const bucket = await this.privateBucket(path);
       const { data, error } = await bucket.createSignedUrl(
         path,
         DOCUMENT_URL_TTL_SECONDS,
