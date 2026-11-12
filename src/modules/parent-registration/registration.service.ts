@@ -284,6 +284,7 @@ export class RegistrationService {
       const submittedAt = new Date();
       const version = await this.repo.createVersion({
         formId: form.id,
+        registrationType: 'VOLUNTEER',
         versionNumber,
         submittedAt,
         formData: protectVolunteerData(data),

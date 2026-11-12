@@ -161,6 +161,9 @@ export class RegistrationForm extends Model {
   updatedAt: false,
 })
 export class RegistrationFormVersion extends Model {
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: 'TRAINEE' | 'VOLUNTEER';
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
