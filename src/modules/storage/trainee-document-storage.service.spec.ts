@@ -9,6 +9,7 @@ describe('Private document Storage', () => {
   const upload = jest.fn();
   const remove = jest.fn();
   const createSignedUrl = jest.fn();
+  const download = jest.fn();
   const from = jest.fn();
   let service: TraineeDocumentStorageService;
   let previous: NodeJS.ProcessEnv;
@@ -27,7 +28,7 @@ describe('Private document Storage', () => {
       data: { signedUrl: 'https://example/signed' },
       error: null,
     });
-    from.mockReturnValue({ upload, remove, createSignedUrl });
+    from.mockReturnValue({ upload, remove, createSignedUrl, download });
     (createClient as jest.Mock).mockReturnValue({
       storage: { getBucket, from },
     });
@@ -65,8 +66,33 @@ describe('Private document Storage', () => {
     expect(createClient).toHaveBeenCalledWith(
       'https://example.supabase.co',
       'server-secret',
-      { auth: { persistSession: false, autoRefreshToken: false } },
+      {
+        auth: { persistSession: false, autoRefreshToken: false },
+        realtime: { transport: expect.any(Function) },
+      },
     );
+  });
+
+  it('keeps discount files in their own private bucket without issuing signed URLs', async () => {
+    const discountPath = service.buildDiscountPath(
+      '11111111-1111-4111-8111-111111111111',
+      'pdf',
+    );
+    download.mockResolvedValue({ data: new Blob(['file']), error: null });
+    await service.upload(discountPath, Buffer.from('file'), 'application/pdf');
+    expect(getBucket).toHaveBeenCalledWith('discount-request-private');
+    await expect(service.downloadDiscount(discountPath)).resolves.toEqual(
+      Buffer.from('file'),
+    );
+    await expect(service.sign(discountPath)).rejects.toThrow(
+      'Invalid document storage key',
+    );
+    expect(createSignedUrl).not.toHaveBeenCalled();
+    getBucket.mockResolvedValue({ data: { public: true }, error: null });
+    await expect(service.downloadDiscount(discountPath)).rejects.toThrow(
+      'Failed to open document',
+    );
+    expect(download).toHaveBeenCalledTimes(1);
   });
 
   it('creates a 60-second signed URL and removes only the selected path', async () => {
