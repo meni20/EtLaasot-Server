@@ -10,6 +10,7 @@ import { QueryTypes } from 'sequelize';
 import { Sequelize } from 'sequelize-typescript';
 import { getBooleanEnv } from '../../config/env.util';
 import type { AuthUser } from '../auth/authorization.service';
+import { ACTIVE_STATUSES } from './registration.repository';
 
 const REGISTRATION_ESSENTIAL = 'registration:essential';
 export const AllowRegistrationAccess = () =>
@@ -21,13 +22,18 @@ export function onlyTrainee(user: AuthUser) {
     !roles.some((r) => [1, 10000, 10001].includes(r.roleId))
   );
 }
+export function onlyVolunteer(user: AuthUser) {
+  const roles = user.roles ?? [];
+  return roles.some((r) => r.roleId === 1) && !roles.some((r) => [10000, 10001].includes(r.roleId));
+}
 @Injectable()
 export class RegistrationRequestAccess {
   constructor(@InjectConnection() private readonly db: Sequelize) {}
   async assertRequest(ctx: ExecutionContext) {
     if (!getBooleanEnv('PARENT_REGISTRATION_BLOCKING_ENABLED', false)) return;
     const req = ctx.switchToHttp().getRequest<{ user: AuthUser }>();
-    if (!onlyTrainee(req.user)) return;
+    const volunteer = onlyVolunteer(req.user) && getBooleanEnv('VOLUNTEER_ANNUAL_RENEWAL_ENABLED', false);
+    if (!volunteer && !onlyTrainee(req.user)) return;
     if (
       Reflect.getMetadata(REGISTRATION_ESSENTIAL, ctx.getHandler()) ||
       Reflect.getMetadata(REGISTRATION_ESSENTIAL, ctx.getClass())
@@ -52,10 +58,13 @@ export class RegistrationRequestAccess {
             ${getBooleanEnv('PARENT_ADMISSION_SCHEMA_READY', false) ? `AND NOT EXISTS (SELECT 1 FROM public.trainee_applications a WHERE a.provisioned_user_id=u.id AND a.branch_id=p.branch_id AND a.approved_activity_year_id=y.id AND a.status='APPROVED')` : ''}
         ) OR EXISTS (
           SELECT 1 FROM public.registration_forms f WHERE f.trainee_uuid=:userId AND f.blocks_access
-            AND f.status IN ('DRAFT','PENDING_REVIEW','CHANGES_REQUESTED')
+            AND f.status IN (:activeStatuses)
         ) AS required`,
         {
-          replacements: { userId: req.user.userId ?? req.user.sub },
+          replacements: {
+            userId: req.user.userId ?? req.user.sub,
+            activeStatuses: ACTIVE_STATUSES,
+          },
           type: QueryTypes.SELECT,
           logging: false,
         },

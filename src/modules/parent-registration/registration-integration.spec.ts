@@ -50,6 +50,19 @@ describe('Phase 5 private integration safety (offline)', () => {
   afterEach(() => {
     process.env = { ...original };
   });
+  it('rejects missing volunteer renewal signatures before accessing private storage or rendering', async () => {
+    const service = new RegistrationIntegrationService({} as never);
+    const download = jest.spyOn(service, 'download');
+    await expect(
+      service.renderVolunteerPdf('renewal', 'synthetic', {}, [], {
+        reference: 'synthetic',
+        branch: 'Fictional',
+        submittedAt: '2026-11-12T10:00:00Z',
+        declarations: [],
+      }),
+    ).rejects.toThrow('Verified volunteer signature is missing');
+    expect(download).not.toHaveBeenCalled();
+  });
   it('fails closed without explicit local integration configuration before any DB query', async () => {
     delete process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED;
     const db = { query: jest.fn() },

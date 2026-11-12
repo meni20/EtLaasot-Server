@@ -125,18 +125,13 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
   } finally { process.env = original; global.structuredClone = clone; }
 });
 describe('Volunteer source, validation and independent signing scopes (offline)', () => {
-  it('keeps the portable Client contract byte-identical', () => {
-    expect(
-      fs.readFileSync(
-        path.resolve(
-          __dirname,
-          '../../../../EtLaasot-Client/src/features/volunteer-registration/contracts.ts',
-        ),
-        'utf8',
-      ),
-    ).toBe(
-      fs.readFileSync(path.join(__dirname, 'volunteer.contract.ts'), 'utf8'),
-    );
+  it('keeps the portable Client contract identical across checkout line endings', () => {
+    const clientRoot = process.env.VOLUNTEER_CONTRACT_CLIENT_ROOT ??
+      path.resolve(__dirname, '../../../../EtLaasot-Client');
+    const readContract = (file: string) =>
+      fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
+    expect(readContract(path.join(clientRoot, 'src/features/volunteer-registration/contracts.ts')))
+      .toBe(readContract(path.join(__dirname, 'volunteer.contract.ts')));
   });
   it('retains source-specific wording, confidentiality and the original missing question number', () => {
     const template = JSON.parse(

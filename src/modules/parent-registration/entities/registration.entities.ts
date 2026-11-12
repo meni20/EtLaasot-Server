@@ -76,6 +76,9 @@ export class BranchRegistrationPeriod extends Model {
 
 @Table({ tableName: 'registration_forms', timestamps: true, underscored: true })
 export class RegistrationForm extends Model {
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: 'TRAINEE' | 'VOLUNTEER';
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)
@@ -204,6 +207,24 @@ export class RegistrationFormVersion extends Model {
   underscored: true,
 })
 export class RegistrationFormDocument extends Model {
+  @Default('TRAINEE')
+  @Column(DataType.STRING(12))
+  declare registrationType: 'TRAINEE' | 'VOLUNTEER';
+
+  @Column(DataType.STRING(32))
+  declare signaturePurpose: string | null;
+
+  @Column(DataType.STRING(64))
+  declare contentHash: string;
+
+  @Column(DataType.STRING(50))
+  declare templateVersion: string | null;
+
+  @Column(DataType.STRING(64))
+  declare sourceChecksum: string | null;
+
+  @Column(DataType.DATE)
+  declare generatedAt: Date | null;
   @PrimaryKey
   @Default(DataType.UUIDV4)
   @Column(DataType.UUID)

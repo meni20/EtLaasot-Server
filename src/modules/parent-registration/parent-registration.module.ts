@@ -44,6 +44,12 @@ export class ParentRegistrationModule {}
 
 export function registrationFeatureModules() {
   if (
+    getBooleanEnv('VOLUNTEER_ANNUAL_RENEWAL_ENABLED', false) &&
+    (!getBooleanEnv('PARENT_REGISTRATION_ENABLED', false) ||
+      !getBooleanEnv('PARENT_REGISTRATION_INTEGRATION_ENABLED', false))
+  )
+    throw new Error('Volunteer renewal requires private registration evidence integration');
+  if (
     getBooleanEnv('PARENT_REGISTRATION_BLOCKING_ENABLED', false) &&
     !getBooleanEnv('PARENT_REGISTRATION_ENABLED', false)
   ) {

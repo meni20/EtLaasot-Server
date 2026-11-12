@@ -498,6 +498,7 @@ export class RegistrationIntegrationService {
     bytes: Buffer,
     purpose: VolunteerPurpose | undefined,
     t?: Transaction,
+    scope: Scope = 'application',
   ) {
     await this.attest(t);
     if (!isUUID(id, '4'))
@@ -538,7 +539,7 @@ export class RegistrationIntegrationService {
       kind === 'SIGNATURE' ? volunteerScopeHash(data, purpose!) : sha(bytes);
     const createdAt = new Date(),
       docId = randomUUID();
-    const storagePath = `registration/application/${id}/${hash}/${kind === 'SIGNATURE' ? purpose : 'police'}/${docId}.${info.extension}`;
+    const storagePath = `registration/${scope}/${id}/${hash}/${kind === 'SIGNATURE' ? purpose : 'police'}/${docId}.${info.extension}`;
     const { name, store } = await this.bucket(t);
     const { error } = await store.upload(storagePath, bytes, {
       contentType: info.mimeType,
@@ -546,26 +547,25 @@ export class RegistrationIntegrationService {
       cacheControl: '0',
     });
     if (error) this.fail('volunteer-upload');
-    const doc = await ApplicationEvidence.create(
-      {
-        id: docId,
-        applicationId: id,
-        registrationType: 'VOLUNTEER',
-        signaturePurpose: kind === 'SIGNATURE' ? purpose : null,
-        kind,
-        storageBucket: name,
-        storagePath,
-        mimeType: info.mimeType,
-        fileSize: bytes.length,
-        checksum: sha(bytes),
-        contentHash: hash,
-        verifiedAt: createdAt,
-        createdAt,
-        versionId: null,
-      },
-      { transaction: t },
-    );
-    await this.download(doc, 'application', id, t);
+    const evidence = {
+      id: docId,
+      registrationType: 'VOLUNTEER',
+      signaturePurpose: kind === 'SIGNATURE' ? purpose : null,
+      kind,
+      storageBucket: name,
+      storagePath,
+      mimeType: info.mimeType,
+      fileSize: bytes.length,
+      checksum: sha(bytes),
+      contentHash: hash,
+      verifiedAt: createdAt,
+      createdAt,
+      versionId: null,
+    };
+    const doc = scope === 'application'
+      ? await ApplicationEvidence.create({ ...evidence, applicationId: id }, { transaction: t })
+      : await RegistrationFormDocument.create({ ...evidence, formId: id }, { transaction: t });
+    await this.download(doc, scope, id, t);
     return {
       documentId: docId,
       contentHash: hash,
@@ -580,6 +580,7 @@ export class RegistrationIntegrationService {
     docs: EvidenceRecord[],
     t?: Transaction,
     asOf?: Date,
+    scope: Scope = 'application',
   ) {
     const today = jerusalemDate(asOf ?? new Date());
     validateVolunteerSubmission(data, today);
@@ -610,7 +611,7 @@ export class RegistrationIntegrationService {
         throw new ConflictException(
           'Signature owner, purpose, date or covered content mismatch',
         );
-      await this.download(doc, 'application', id, t);
+      await this.download(doc, scope, id, t);
     }
     if (needsClearance(data, today) || data.policeClearanceDocumentId) {
       const doc = docs.find(
@@ -621,8 +622,87 @@ export class RegistrationIntegrationService {
       );
       if (!doc || !doc.verifiedAt || doc.storagePath.split('/')[4] !== 'police')
         throw new ConflictException('Private police clearance is required');
-      await this.download(doc, 'application', id, t);
+      await this.download(doc, scope, id, t);
     }
+  }
+  async renderVolunteerPdf(
+    scope: Scope,
+    id: string,
+    data: VolunteerData,
+    docs: EvidenceRecord[],
+    submission: {
+      reference: string;
+      branch: string;
+      submittedAt: string;
+      declarations: string[];
+    },
+  ) {
+    const { submittedAt } = submission;
+    const images: Partial<Record<VolunteerPurpose, string>> = {};
+    for (const purpose of VOLUNTEER_PURPOSES) {
+      if (
+        purpose === 'PARENTAL_CONSENT' &&
+        !needsParent(data, jerusalemDate(new Date(submittedAt)))
+      )
+        continue;
+      const signature = data.signatures?.[purpose];
+      const doc = docs.find((d) => d.id === signature?.documentId);
+      if (!doc || doc.kind !== 'SIGNATURE' || doc.signaturePurpose !== purpose)
+        throw new ConflictException('Verified volunteer signature is missing');
+      images[purpose] =
+        'data:image/png;base64,' +
+        (await this.download(doc, scope, id)).toString('base64');
+    }
+    const payload = volunteerRenderRequest(
+      data,
+      {
+        reference: submission.reference,
+        applicationId: id,
+        branch: submission.branch,
+        submittedAt,
+      },
+      images,
+      submission.declarations,
+    );
+    const url = getRequiredEnv('REGISTRATION_DOCUMENTS_URL'),
+      key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
+    if (!isAllowedDocumentsBaseUrl(url) || !/^[a-f0-9]{64}$/.test(key))
+      this.fail('documents-configuration');
+    const response = await fetch(
+      new URL('/internal/documents/render', url),
+      {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Internal-Api-Key': key,
+        },
+        body: JSON.stringify(payload),
+        redirect: 'error',
+        signal: AbortSignal.timeout(60000),
+      },
+    );
+    if (
+      !response.ok ||
+      !response.headers.get('content-type')?.startsWith('application/pdf')
+    )
+      this.fail('volunteer-render');
+    const chunks: Buffer[] = [];
+    let size = 0;
+    const reader = response.body?.getReader();
+    if (!reader) this.fail('volunteer-render-body');
+    while (true) {
+      const part = await reader.read();
+      if (part.done) break;
+      size += part.value.length;
+      if (size > MAX) {
+        await reader.cancel();
+        this.fail('volunteer-pdf-size');
+      }
+      chunks.push(Buffer.from(part.value));
+    }
+    const bytes = Buffer.concat(chunks);
+    await this.inspect(bytes, 'REGISTRATION_PDF');
+    return bytes;
   }
   // Snapshot and attach use short DB transactions. Rendering, evidence downloads
   // and Storage read-back run outside row locks. A unique PDF/version index is
@@ -702,69 +782,18 @@ export class RegistrationIntegrationService {
       );
       if (candidate) await this.download(candidate, 'application', id);
       else {
-        const images: Partial<Record<VolunteerPurpose, string>> = {};
-        for (const purpose of VOLUNTEER_PURPOSES) {
-          if (
-            purpose === 'PARENTAL_CONSENT' &&
-            !needsParent(data, jerusalemDate(new Date(submittedAt)))
-          )
-            continue;
-          const doc = snapshot.docs.find(
-            (d) => d.id === data.signatures![purpose]!.documentId,
-          )!;
-          images[purpose] =
-            'data:image/png;base64,' +
-            (await this.download(doc, 'application', id)).toString('base64');
-        }
-        const payload = volunteerRenderRequest(
+        const bytes = await this.renderVolunteerPdf(
+          'application',
+          id,
           data,
+          snapshot.docs,
           {
             reference: v.id,
-            applicationId: id,
             branch: snapshot.branch,
             submittedAt,
-          },
-          images,
-          v.declarations,
-        );
-        const url = getRequiredEnv('REGISTRATION_DOCUMENTS_URL'),
-          key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
-        if (!isAllowedDocumentsBaseUrl(url) || !/^[a-f0-9]{64}$/.test(key))
-          this.fail('documents-configuration');
-        const response = await fetch(
-          new URL('/internal/documents/render', url),
-          {
-            method: 'POST',
-            headers: {
-              'Content-Type': 'application/json',
-              'X-Internal-Api-Key': key,
-            },
-            body: JSON.stringify(payload),
-            redirect: 'error',
-            signal: AbortSignal.timeout(60000),
+            declarations: v.declarations,
           },
         );
-        if (
-          !response.ok ||
-          !response.headers.get('content-type')?.startsWith('application/pdf')
-        )
-          this.fail('volunteer-render');
-        const chunks: Buffer[] = [];
-        let size = 0;
-        const reader = response.body?.getReader();
-        if (!reader) this.fail('volunteer-render-body');
-        while (true) {
-          const part = await reader.read();
-          if (part.done) break;
-          size += part.value.length;
-          if (size > MAX) {
-            await reader.cancel();
-            this.fail('volunteer-pdf-size');
-          }
-          chunks.push(Buffer.from(part.value));
-        }
-        const bytes = Buffer.concat(chunks);
-        await this.inspect(bytes, 'REGISTRATION_PDF');
         const docId = randomUUID(),
           now = new Date(),
           storagePath = `registration/application/${id}/${v.contentHash}/pdf/${docId}.pdf`;
@@ -950,6 +979,45 @@ export class RegistrationIntegrationService {
           throw new ConflictException(
             'Only a submitted version can generate a PDF',
           );
+        if (scope === 'renewal' && owner.registrationType === 'VOLUNTEER') {
+          const renewal = version as RegistrationFormVersion;
+          const data = readVolunteerData(renewal.formData);
+          const hash = volunteerContentHash(data);
+          if (renewal.signingMetadata.contentHash !== hash ||
+              renewal.templateVersion !== VOLUNTEER_TEMPLATE_VERSION ||
+              renewal.declarationVersion !== VOLUNTEER_AGREEMENT_VERSION ||
+              JSON.stringify(renewal.declarations) !== JSON.stringify(VOLUNTEER_DECLARATIONS))
+            throw new ConflictException('Immutable volunteer renewal version does not match');
+          const submitted = new Date(renewal.submittedAt);
+          await this.verifyVolunteerSigned(id, data, docs, t, submitted, 'renewal');
+          const branch = owner.branchId && await Branch.findByPk(owner.branchId, { transaction: t });
+          if (!branch) throw new ConflictException('Renewal branch not found');
+          const bytes = await this.renderVolunteerPdf('renewal', id, data, docs, {
+            reference: renewal.id, branch: branch.name, submittedAt: submitted.toISOString(),
+            declarations: renewal.declarations,
+          });
+          const { name, store } = await this.bucket(t);
+          const pdfId = randomUUID();
+          const storagePath = `registration/renewal/${id}/${hash}/pdf/${pdfId}.pdf`;
+          const { error } = await store.upload(storagePath, bytes, {
+            contentType: 'application/pdf', upsert: false, cacheControl: '0',
+          });
+          if (error) this.fail('volunteer-renewal-pdf-upload');
+          const now = new Date();
+          const pdf = await RegistrationFormDocument.create({
+            id: pdfId, formId: id, versionId: renewal.id, registrationType: 'VOLUNTEER',
+            kind: 'REGISTRATION_PDF', storageBucket: name, storagePath, mimeType: 'application/pdf',
+            fileSize: bytes.length, checksum: sha(bytes), contentHash: hash, verifiedAt: now,
+            templateVersion: VOLUNTEER_TEMPLATE_VERSION, sourceChecksum: VOLUNTEER_SOURCE_SHA256, generatedAt: now,
+          }, { transaction: t });
+          await this.download(pdf, 'renewal', id, t);
+          await owner.update({ documentStatus: 'READY' }, { transaction: t });
+          await RegistrationFormHistory.create({
+            formId: id, versionId: renewal.id, actorUuid: actorId ?? (owner as RegistrationForm).traineeUuid,
+            action: 'PDF_GENERATED', metadata: { documentStatus: 'READY' },
+          }, { transaction: t });
+          return { status: 'READY' as const, versionId: renewal.id };
+        }
         const data = readData(version.formData as RegistrationData);
         if (
           version.templateVersion !== TEMPLATE_VERSION ||
@@ -1151,7 +1219,7 @@ export class RegistrationIntegrationService {
                   versionId: latest.id,
                   actorUuid: actorId ?? (owner as RegistrationForm).traineeUuid,
                   action: 'PDF_FAILED',
-                  metadata: { documentStatus: 'FAILED', ...failure },
+                  metadata: { documentStatus: 'FAILED' },
                 },
                 { transaction: t },
               );
