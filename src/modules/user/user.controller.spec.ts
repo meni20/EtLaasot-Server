@@ -1,5 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
-import AuthorizationService from '../auth/authorization.service';
+import { AuthorizationService } from '../auth/authorization.service';
 import UserController from './user.controller';
 import UserService from './user.service';
 
@@ -59,5 +59,46 @@ describe('UserController self profile update', () => {
         { user: { userId: 'authenticated-user' } },
       ),
     ).toThrow(BadRequestException);
+  });
+});
+
+describe('Trainee directory scope', () => {
+  const getAllTrainees = jest.fn();
+  const controller = new UserController(
+    { getAllTrainees } as never,
+    new AuthorizationService(),
+  );
+  const request = {
+    user: {
+      roles: [
+        { roleId: 10000, branchId: 'admin-branch' },
+        { roleId: 1, branchId: 'volunteer-branch' },
+      ],
+    },
+  };
+
+  it('keys access and archived data to the requested branch role', () => {
+    controller.getAllTrainees('volunteer-branch', 'active', request);
+    expect(getAllTrainees).toHaveBeenLastCalledWith(
+      'volunteer-branch',
+      false,
+      false,
+      'active',
+      false,
+    );
+    expect(() =>
+      controller.getAllTrainees('volunteer-branch', 'all', request),
+    ).toThrow();
+    expect(() =>
+      controller.getAllTrainees('other-branch', 'active', request),
+    ).toThrow();
+    controller.getAllTrainees('admin-branch', 'archived', request);
+    expect(getAllTrainees).toHaveBeenLastCalledWith(
+      'admin-branch',
+      true,
+      true,
+      'archived',
+      true,
+    );
   });
 });

@@ -1,3 +1,4 @@
+import { LoginRateLimitGuard } from './login-rate-limit.guard';
 import { Module } from '@nestjs/common';
 import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
@@ -24,7 +25,7 @@ import { ConfigModule } from '@nestjs/config';
       }),
     }),
   ],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, JwtStrategy, LoginRateLimitGuard],
   controllers: [AuthController],
 })
 export class AuthModule { }

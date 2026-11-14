@@ -1,3 +1,4 @@
+import { DatabaseExceptionFilter } from './common/database-exception.filter';
 import { RegistrationIntegrationService } from './modules/parent-registration/registration-integration.service';
 import { getBooleanEnv } from './config/env.util';
 import { AppModule, runtimeEnvironment } from './app.module';
@@ -49,6 +50,8 @@ async function bootstrap() {
 
     next();
   });
+
+  app.useGlobalFilters(new DatabaseExceptionFilter());
 
   app.useGlobalPipes(
     new ValidationPipe({
