@@ -618,14 +618,14 @@ describe('Locked audience edits and activity creation', () => {
 describe('Activity trainee list eligibility data', () => {
   afterEach(() => jest.restoreAllMocks());
   it('preserves all roles for selected trainees without changing branch/status/limit', async () => {
-    const trainee = { id: 'dual', toJSON: () => ({ id: 'dual', name: 'Dual role trainee' }) };
+    const trainee = { id: 'dual', branchId: 'branch-a', name: 'Dual role trainee', phoneNumber: 'fictional-private-field' };
     jest.spyOn(User, 'findAll').mockResolvedValue([trainee] as any);
     const roles = [1, 2].map((roleId) => ({
       userId: 'dual',
       roleId,
       resourceId: 'branch-a',
     }));
-    jest.spyOn(UserRole, 'findAll').mockResolvedValue(roles as UserRole[]);
+    jest.spyOn(UserRole, 'findAll').mockResolvedValue([...roles, { userId: "dual", roleId: 10000, resourceId: "branch-b" }] as UserRole[]);
     const result = await new UserRepository().getAllTrainees('branch-a');
     expect(User.findAll).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -636,6 +636,6 @@ describe('Activity trainee list eligibility data', () => {
     expect(UserRole.findAll).toHaveBeenCalledWith(
       expect.objectContaining({ where: { userId: { [Op.in]: ['dual'] } } }),
     );
-    expect(result).toEqual([{ id: 'dual', name: 'Dual role trainee', userRoles: roles }]);
+    expect(result).toEqual([{ id: 'dual', branchId: 'branch-a', name: 'Dual role trainee', userRoles: roles.map(({ roleId, resourceId }) => ({ roleId, resourceId })) }]);
   });
 });

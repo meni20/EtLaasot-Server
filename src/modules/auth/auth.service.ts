@@ -11,7 +11,7 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import axios from 'axios';
-import { createHmac, timingSafeEqual } from 'node:crypto';
+import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import {
   getBooleanEnv,
   getIntegerEnv,
@@ -64,6 +64,7 @@ export type AuthenticatedUser = {
 
 @Injectable()
 export default class AuthService {
+  private dummyPasswordHash?: Promise<string>;
   private readonly logger = new Logger(AuthService.name);
   private readonly authContextCacheMs = getIntegerEnv(
     'AUTH_CONTEXT_CACHE_MS',
@@ -93,29 +94,21 @@ export default class AuthService {
     const user =
       await this.userService.findByNationalIdHashForAuth(nationalIdHash);
 
-    if (user) {
-      await this.assertLoginAllowed(user);
-    }
-
     await this.verifyRecaptchaIfConfigured(user, recaptchaToken);
 
-    if (!user) {
-      this.logger.warn('Login denied: invalid credentials');
-      throw this.invalidCredentials();
-    }
-
-    const passwordMatches =
-      !!user.passwordHash &&
-      (await verifyPassword(user.passwordHash, password));
+    const hash = user?.isActive !== false && user?.passwordHash
+      ? user.passwordHash
+      : await (this.dummyPasswordHash ??= hashPassword(randomBytes(32).toString('hex')));
+    const passwordMatches = await verifyPassword(hash, password);
 
     if (
-      !passwordMatches ||
+      !user || user.isActive === false || !user.passwordHash || !passwordMatches ||
       this.isTemporaryPasswordExpired(
         user.mustChangePassword,
         user.temporaryPasswordExpiresAt,
       )
     ) {
-      await this.registerFailedLogin(user);
+      if (user?.isActive !== false && user) await this.registerFailedLogin(user);
       this.logger.warn('Login denied: invalid credentials');
       throw this.invalidCredentials();
     }

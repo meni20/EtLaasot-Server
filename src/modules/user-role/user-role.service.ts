@@ -1,4 +1,5 @@
-import { Injectable, InternalServerErrorException } from '@nestjs/common';
+import { safeDatabaseFailure } from '../../common/safe-database-failure';
+import { Injectable } from '@nestjs/common';
 import UserRoleRepository from './user-role.repositroy';
 import { Transaction } from 'sequelize';
 
@@ -14,7 +15,7 @@ export default class UserRoleService {
     branchId?: string,
   ) {
     try {
-      return this.userRoleRepository.assignRoleToUser(
+      return await this.userRoleRepository.assignRoleToUser(
         userId,
         roleId,
         grantedBy,
@@ -22,15 +23,15 @@ export default class UserRoleService {
         branchId,
       );
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
   public async findRolesByUserId(userId: string) {
     try {
-      return this.userRoleRepository.findRolesByUserId(userId);
+      return await this.userRoleRepository.findRolesByUserId(userId);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 }

@@ -1,3 +1,4 @@
+import { safeDatabaseFailure } from '../../common/safe-database-failure';
 import UserRepository from './user.repository';
 import {
   traineeFormStatuses,
@@ -235,7 +236,7 @@ export default class UserService {
         status,
       );
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -268,7 +269,7 @@ export default class UserService {
         };
       });
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -294,7 +295,7 @@ export default class UserService {
         volunteerRegistrationPdf: pdfs.get(volunteer.id) ?? null,
       }));
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -313,43 +314,43 @@ export default class UserService {
     );
   }
 
-  public countByBranchAndRole(branchId: string, roleId: number) {
+  public async countByBranchAndRole(branchId: string, roleId: number) {
     try {
-      return this.userRepository.countByBranchAndRole(branchId, roleId);
+      return await this.userRepository.countByBranchAndRole(branchId, roleId);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
-  public findById(id: string, includeNotes = false) {
+  public async findById(id: string, includeNotes = false) {
     try {
-      return this.userRepository.findById(id, includeNotes);
+      return await this.userRepository.findById(id, includeNotes);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
-  public findByNationalIdHash(nationalIdHash: string) {
+  public async findByNationalIdHash(nationalIdHash: string) {
     try {
-      return this.userRepository.findByNationalIdHash(nationalIdHash);
+      return await this.userRepository.findByNationalIdHash(nationalIdHash);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
-  public findByNationalIdHashForAuth(nationalIdHash: string) {
+  public async findByNationalIdHashForAuth(nationalIdHash: string) {
     try {
-      return this.userRepository.findByNationalIdHashForAuth(nationalIdHash);
+      return await this.userRepository.findByNationalIdHashForAuth(nationalIdHash);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
-  public findByIdForAuth(userId: string) {
+  public async findByIdForAuth(userId: string) {
     try {
-      return this.userRepository.findByIdForAuth(userId);
+      return await this.userRepository.findByIdForAuth(userId);
     } catch (err) {
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -526,7 +527,7 @@ export default class UserService {
         throw err;
       }
 
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -599,7 +600,7 @@ export default class UserService {
         throw err;
       }
 
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 
@@ -662,7 +663,7 @@ export default class UserService {
         throw err;
       }
 
-      throw new InternalServerErrorException(err);
+      throw safeDatabaseFailure(err);
     }
   }
 

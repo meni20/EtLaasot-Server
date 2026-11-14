@@ -115,10 +115,18 @@ export default class UserRepository {
 
     const trainees = await User.findAll({
       where,
-      attributes: this.getSafeAttributes(
-        includeNotes,
-        includeNationalIdRevealId,
-      ),
+      attributes: includeNotes
+        ? [
+            'id', 'name', 'branchId', 'nationalIdLast4', 'isActive',
+            'archivedAt', 'archivedBy', 'archiveReason', 'phoneNumber',
+            'gender', 'address', 'email', 'age', 'dateOfBirth', 'shirtSize',
+            'customShirtSize', 'allergies', 'notes', 'parentName',
+            'createdAt', 'updatedAt',
+            ...(includeNationalIdRevealId
+              ? [[col('User.id'), 'nationalIdRevealId'] as [ReturnType<typeof col>, string]]
+              : []),
+          ]
+        : ['id', 'name', 'branchId'],
       include: [
         {
           model: UserRole,
@@ -143,10 +151,12 @@ export default class UserRepository {
         rolesByUser.set(role.userId, userRoles);
       });
       return trainees.map((user) => ({
-        ...user.toJSON(),
+        ...(includeNotes ? user.toJSON() : { name: user.name }),
         id: user.id,
         branchId: user.branchId,
-        userRoles: rolesByUser.get(user.id) ?? [],
+        userRoles: (rolesByUser.get(user.id) ?? [])
+          .filter((role) => includeNotes || !role.resourceId || role.resourceId === branchId)
+          .map(({ roleId, resourceId }) => ({ roleId, resourceId })),
       }));
     }
     return trainees;

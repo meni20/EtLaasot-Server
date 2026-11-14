@@ -1,3 +1,4 @@
+import { LoginRateLimitGuard } from './login-rate-limit.guard';
 import AuthService from './auth.service';
 import {
   Body,
@@ -56,6 +57,7 @@ export default class AuthController {
   constructor(private readonly authService: AuthService) {}
 
   @Post('login')
+  @UseGuards(LoginRateLimitGuard)
   async login(
     @Body() body: LoginDto,
     @Res({ passthrough: true }) res: Response,

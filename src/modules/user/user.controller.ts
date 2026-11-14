@@ -131,19 +131,15 @@ export default class UserController {
       this.authorizationService.assertSuperAdmin(req.user);
     }
 
-    const includeNotes = branchId
+    const administrator = branchId
       ? this.authorizationService.hasAdminAccess(req.user, branchId)
       : true;
-    const includeNationalIdRevealId = branchId
-      ? this.authorizationService.hasAdminAccess(req.user, branchId)
-      : this.authorizationService.isSuperAdmin(req.user);
-
+    const listStatus = this.parseListStatus(status);
+    if (!administrator && listStatus !== 'active') {
+      throw new ForbiddenException('רק מנהלי הסניף יכולים לצפות ברשומות בארכיון');
+    }
     return this.userService.getAllTrainees(
-      branchId,
-      includeNotes,
-      includeNationalIdRevealId,
-      this.parseListStatus(status),
-      includeNationalIdRevealId,
+      branchId, administrator, administrator, listStatus, administrator,
     );
   }
 
