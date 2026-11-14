@@ -1,5 +1,5 @@
 import type { VolunteerPurpose } from '../parent-admission/volunteer.contract';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { MultipartFileInterceptor } from '../../common/multipart-file.interceptor';
 import type { Response } from 'express';
 import {
   Body,
@@ -59,8 +59,8 @@ export class RegistrationController {
     return this.service.submitVolunteerRenewal(req.user, input);
   }
   @Post('me/volunteer/attachments/:kind')
-  @UseInterceptors(FileInterceptor('file', {
-    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3 },
+  @UseInterceptors(MultipartFileInterceptor('file', {
+    limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3, parts: 4 },
   }))
   volunteerAttachment(
     @Req() req: RegistrationRequest,
@@ -91,8 +91,8 @@ export class RegistrationController {
   }
   @Post('me/attachments/:kind')
   @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3 },
+    MultipartFileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3, parts: 4 },
     }),
   )
   attachment(

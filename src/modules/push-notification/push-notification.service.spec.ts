@@ -8,7 +8,7 @@ describe('PushNotificationService', () => {
   const subscription = {
     id: 'subscription-1',
     userUuid: 'admin-1',
-    endpoint: 'https://push.example/subscription-1',
+    endpoint: 'https://fcm.googleapis.com/fcm/send/subscription-1',
     p256dh: 'p256dh-value',
     auth: 'auth-value',
     expirationTime: null,
@@ -84,6 +84,41 @@ describe('PushNotificationService', () => {
       url: '/home',
       tag: 'etlaasot-self-test',
     });
+  });
+
+  it.each([
+    'https://updates.push.services.mozilla.com/wpush/v2/example',
+    'https://web.push.apple.com/example',
+    'https://wns2-par02p.notify.windows.com/w/example',
+  ])('registers a supported provider endpoint %s', async (endpoint) => {
+    const { repository, service } = createService();
+    await service.register('admin-1', {
+      endpoint,
+      keys: { p256dh: 'key', auth: 'auth' },
+    });
+    expect(repository.upsert).toHaveBeenCalled();
+  });
+
+  it('refuses unsupported endpoints at registration and at delivery', async () => {
+    const { repository, service } = createService();
+    const endpoint = 'https://fcm.googleapis.com.example.invalid/push';
+    await expect(
+      service.register('admin-1', {
+        endpoint,
+        keys: { p256dh: 'key', auth: 'auth' },
+      }),
+    ).rejects.toMatchObject({ status: 400 });
+    expect(repository.upsert).not.toHaveBeenCalled();
+    repository.findAllForUser.mockResolvedValue([
+      { ...subscription, endpoint },
+    ]);
+    const send = jest
+      .spyOn(webPush, 'sendNotification')
+      .mockResolvedValue({} as never);
+    await expect(service.sendSelfTest('admin-1')).rejects.toMatchObject({
+      status: 503,
+    });
+    expect(send).not.toHaveBeenCalled();
   });
 
   it('returns a clear response when the user has no subscription', async () => {

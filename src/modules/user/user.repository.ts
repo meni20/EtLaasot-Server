@@ -196,6 +196,7 @@ export default class UserRepository {
   public async findByIdForAuth(id: string) {
     return await User.findOne({
       where: { id, isActive: true },
+      logging: false,
       attributes: [
         'id',
         'name',

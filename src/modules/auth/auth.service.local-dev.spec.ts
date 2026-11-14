@@ -15,6 +15,8 @@ describe('Normal authentication in local DEV integration', () => {
     passwordHash = await hashPassword(password);
   });
   beforeEach(() => {
+    process.env.JWT_SECRET = 'offline-test-jwt-key';
+    process.env.APPLICATION_CREDENTIALS_SCHEMA_READY = 'false';
     process.env.NATIONAL_ID_HASH_SECRET = 'offline-local-dev-hash-secret';
     process.env.PARENT_REGISTRATION_INTEGRATION_ENABLED = 'true';
     // Even a stale setting must not block normal users in the DEV system.
@@ -69,6 +71,60 @@ describe('Normal authentication in local DEV integration', () => {
     });
     expect(users.clearLoginFailures).toHaveBeenCalledWith('offline-admin');
   });
+  it.each(['change', 'reset'])(
+    'revokes old JWTs after password %s without the recovery schema',
+    async (method) => {
+      const { service, user, users, jwt } = setup();
+      await service.login('123456782', password);
+      const claims = (
+        jwt.sign.mock.calls as unknown as [{ credentialVersion: string }][]
+      )[0][0];
+      await expect(
+        service.assertSessionCurrent(
+          user.id,
+          undefined,
+          claims.credentialVersion,
+        ),
+      ).resolves.toBeUndefined();
+      await expect(
+        service.assertSessionCurrent(user.id, undefined, undefined),
+      ).rejects.toMatchObject({ status: 401 });
+      const updatePassword = async (_id: string, nextHash: string) => {
+        user.passwordHash = nextHash;
+      };
+      users.updatePassword.mockImplementation(updatePassword);
+      if (method === 'change') {
+        await service.changePassword(
+          user.id,
+          password,
+          'Replacement!4827',
+          'Replacement!4827',
+        );
+        const fresh = (
+          jwt.sign.mock.calls as unknown as [{ credentialVersion: string }][]
+        )[1][0];
+        await expect(
+          service.assertSessionCurrent(
+            user.id,
+            undefined,
+            fresh.credentialVersion,
+          ),
+        ).resolves.toBeUndefined();
+      } else {
+        await UserService.prototype.resetPassword.call(
+          { updatePassword },
+          user.id,
+        );
+      }
+      await expect(
+        service.assertSessionCurrent(
+          user.id,
+          undefined,
+          claims.credentialVersion,
+        ),
+      ).rejects.toMatchObject({ status: 401 });
+    },
+  );
   it('allows an active global administrator without a primary branch', async () => {
     const { service, user, roles } = setup();
     Object.assign(user, { branchId: null });
@@ -121,7 +177,7 @@ describe('Normal authentication in local DEV integration', () => {
         'UpdatedOffline!4827',
         'UpdatedOffline!4827',
       ),
-    ).resolves.toEqual({ ok: true });
+    ).resolves.toEqual({ ok: true, token: 'offline-token' });
     expect(users.updatePassword).toHaveBeenCalledWith(
       'offline-admin',
       expect.any(String),

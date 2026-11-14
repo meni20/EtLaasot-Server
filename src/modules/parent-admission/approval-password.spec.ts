@@ -96,6 +96,7 @@ describe('Password approval lifecycle (offline transaction contracts)', () => {
   });
   beforeEach(() => {
     Object.assign(process.env, {
+      JWT_SECRET: "offline-test-jwt-key",
       NATIONAL_ID_HASH_SECRET: 'fictional-approval-secret',
       NATIONAL_ID_ENCRYPTION_KEY: 'a'.repeat(64),
       PARENT_REGISTRATION_TOKEN_PEPPER: 'b'.repeat(64),

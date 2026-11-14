@@ -15,12 +15,19 @@ import {
   MaxFileSizeValidator,
   FileTypeValidator,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { MultipartFileInterceptor } from '../../common/multipart-file.interceptor';
 import EventService from './event.service';
 import { CreateEventDto } from './dtos/event.dto';
 import { IEvent } from './interfaces/event.interface';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { AuthorizationService } from '../auth/authorization.service';
+
+import { EventImageUploadGuard } from './event-image-upload.guard';
+
+const MAX_IMAGE_BYTES = 5 * 1024 * 1024;
+const imageUploadOptions = {
+  limits: { fileSize: MAX_IMAGE_BYTES, files: 1, fields: 0, parts: 1 },
+};
 
 @Controller('event')
 @UseGuards(JwtAuthGuard)
@@ -58,13 +65,14 @@ export default class EventController {
   }
 
   @Put(':eventId/image')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(EventImageUploadGuard)
+  @UseInterceptors(MultipartFileInterceptor('image', imageUploadOptions))
   public async uploadEventImage(
     @Param('eventId') eventId: string,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new MaxFileSizeValidator({ maxSize: MAX_IMAGE_BYTES }),
           new FileTypeValidator({
             fileType: /^image\/(jpeg|png|webp)$/,
           }),
@@ -101,14 +109,15 @@ export default class EventController {
   }
 
   @Put('calendar-background/:branchId/:monthKey/image')
-  @UseInterceptors(FileInterceptor('image'))
+  @UseGuards(EventImageUploadGuard)
+  @UseInterceptors(MultipartFileInterceptor('image', imageUploadOptions))
   public async uploadCalendarMonthBackground(
     @Param('branchId') branchId: string,
     @Param('monthKey') monthKey: string,
     @UploadedFile(
       new ParseFilePipe({
         validators: [
-          new MaxFileSizeValidator({ maxSize: 5 * 1024 * 1024 }),
+          new MaxFileSizeValidator({ maxSize: MAX_IMAGE_BYTES }),
           new FileTypeValidator({
             fileType: /^image\/(jpeg|png|webp)$/,
             skipMagicNumbersValidation: true,

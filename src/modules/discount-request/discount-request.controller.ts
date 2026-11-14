@@ -19,7 +19,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { MultipartFileInterceptor } from '../../common/multipart-file.interceptor';
 import type { Request, Response } from 'express';
 import type { AuthUser } from '../auth/authorization.service';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -70,8 +70,8 @@ export class DiscountSelfController {
 
   @Put('attachments/:key')
   @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: MAX_DOCUMENT_SIZE + 1, files: 1, fields: 0, parts: 2 },
+    MultipartFileInterceptor('file', {
+      limits: { fileSize: MAX_DOCUMENT_SIZE, files: 1, fields: 0, parts: 1 },
     }),
   )
   upload(
