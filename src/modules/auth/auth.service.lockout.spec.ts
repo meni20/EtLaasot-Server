@@ -18,13 +18,17 @@ type AuthServiceLockoutInternals = {
 };
 
 describe('AuthService repeated login failures', () => {
+  const originalJwtSecret = process.env.JWT_SECRET;
   const originalHashSecret = process.env.NATIONAL_ID_HASH_SECRET;
 
   beforeAll(() => {
+    process.env.JWT_SECRET = 'offline-test-jwt-key';
     process.env.NATIONAL_ID_HASH_SECRET = 'test-national-id-hash-secret';
   });
 
   afterAll(() => {
+    if (originalJwtSecret === undefined) delete process.env.JWT_SECRET;
+    else process.env.JWT_SECRET = originalJwtSecret;
     if (originalHashSecret === undefined) {
       delete process.env.NATIONAL_ID_HASH_SECRET;
     } else {

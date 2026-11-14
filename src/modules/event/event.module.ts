@@ -4,6 +4,7 @@ import Event from './entities/event.entity';
 import EventService from './event.service';
 import EventRepository from './event.repository';
 import EventController from './event.controller';
+import { EventImageUploadGuard } from './event-image-upload.guard';
 import { AttendeeModule } from '../attendee/attendee.module';
 import Attendee from '../attendee/entities/attendee.entity';
 import EventPairing from '../attendee/entities/event-pairing.entity';
@@ -28,7 +29,12 @@ import { EmailModule } from '../email/email.module';
     AiModule,
     EmailModule,
   ],
-  providers: [EventService, EventRepository, ActivityRepository],
+  providers: [
+    EventService,
+    EventRepository,
+    ActivityRepository,
+    EventImageUploadGuard,
+  ],
   controllers: [EventController],
   exports: [EventService],
 })

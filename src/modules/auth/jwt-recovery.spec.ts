@@ -25,7 +25,11 @@ describe('JWT reset revocation boundary', () => {
       await strategy.validate({ sub: 'user', sessionVersion: 2 }),
     ).toMatchObject({ sub: 'user' });
     expect(order).toEqual(['revision', 'context']);
-    expect(auth.assertSessionCurrent).toHaveBeenCalledWith('user', 2);
+    expect(auth.assertSessionCurrent).toHaveBeenCalledWith(
+      'user',
+      2,
+      undefined,
+    );
   });
   it('rejects revoked sessions even if account context would still be cached', async () => {
     const auth = {
@@ -40,14 +44,18 @@ describe('JWT reset revocation boundary', () => {
     ).rejects.toBeInstanceOf(UnauthorizedException);
     expect(auth.getMe).not.toHaveBeenCalled();
   });
-  it('preserves old JWTs via revision-zero compatibility and rejects missing subjects', async () => {
+  it('leaves credential validation to the session service and rejects missing subjects', async () => {
     const auth = {
       assertSessionCurrent: jest.fn(async () => {}),
       getMe: jest.fn(async () => ({ userId: 'user' })),
     };
     const strategy = new JwtStrategy(auth as never);
     await strategy.validate({ sub: 'user' });
-    expect(auth.assertSessionCurrent).toHaveBeenCalledWith('user', undefined);
+    expect(auth.assertSessionCurrent).toHaveBeenCalledWith(
+      'user',
+      undefined,
+      undefined,
+    );
     await expect(strategy.validate({})).rejects.toThrow('Invalid token');
   });
 });

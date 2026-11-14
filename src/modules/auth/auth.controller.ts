@@ -66,15 +66,7 @@ export default class AuthController {
       body.recaptchaToken,
     );
 
-    const crossSite = useSecureCookies();
-
-    res.cookie('access_token', result.token, {
-      httpOnly: true,
-      sameSite: crossSite ? 'none' : 'lax',
-      secure: crossSite,
-      maxAge: 7 * 24 * 60 * 60 * 1000,
-      path: '/',
-    });
+    this.setSessionCookie(res, result.token);
 
     return {
       token: result.token,
@@ -112,12 +104,30 @@ export default class AuthController {
   @AllowRegistrationAccess()
   @UseGuards(JwtAuthGuard)
   @AllowPasswordChangeRequired()
-  changePassword(@Body() body: ChangePasswordDto, @Req() req: any) {
-    return this.authService.changePassword(
+  async changePassword(
+    @Body() body: ChangePasswordDto,
+    @Req() req: any,
+    @Res({ passthrough: true }) res: Response,
+  ) {
+    const result = await this.authService.changePassword(
       req.user.userId,
       body.currentPassword,
       body.newPassword,
       body.confirmPassword,
     );
+    this.setSessionCookie(res, result.token);
+    return result;
+  }
+
+  private setSessionCookie(res: Response, token: string) {
+    const crossSite = useSecureCookies();
+
+    res.cookie('access_token', token, {
+      httpOnly: true,
+      sameSite: crossSite ? 'none' : 'lax',
+      secure: crossSite,
+      maxAge: 7 * 24 * 60 * 60 * 1000,
+      path: '/',
+    });
   }
 }

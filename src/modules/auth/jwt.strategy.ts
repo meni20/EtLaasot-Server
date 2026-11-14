@@ -33,7 +33,11 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     });
   }
 
-  async validate(payload: { sub?: string; sessionVersion?: number }) {
+  async validate(payload: {
+    sub?: string;
+    sessionVersion?: number;
+    credentialVersion?: string;
+  }) {
     if (!payload.sub) {
       throw new UnauthorizedException('Invalid token');
     }
@@ -41,6 +45,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
     await this.authService.assertSessionCurrent(
       payload.sub,
       payload.sessionVersion,
+      payload.credentialVersion,
     );
     const user = await this.authService.getMe(payload.sub);
 

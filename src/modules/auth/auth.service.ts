@@ -11,10 +11,12 @@ import {
   ServiceUnavailableException,
 } from '@nestjs/common';
 import axios from 'axios';
+import { createHmac, timingSafeEqual } from 'node:crypto';
 import {
   getBooleanEnv,
   getIntegerEnv,
   getOptionalEnv,
+  getRequiredEnv,
 } from 'src/config/env.util';
 import {
   assertNationalIdHashSecretConfigured,
@@ -146,6 +148,7 @@ export default class AuthService {
       user.passwordHash!,
     );
     const payload = {
+      credentialVersion: this.credentialVersion(user.passwordHash!),
       ...(sessionVersion !== undefined ? { sessionVersion } : {}),
       sub: userId,
       roles,
@@ -194,7 +197,34 @@ export default class AuthService {
       throw new ServiceUnavailableException('Session validation unavailable');
     }
   }
-  async assertSessionCurrent(userId: string, version: unknown) {
+  private credentialVersion(passwordHash: string) {
+    return createHmac('sha256', getRequiredEnv('JWT_SECRET'))
+      .update('etlaasot:credential-version:v1\0')
+      .update(passwordHash)
+      .digest('hex');
+  }
+
+  async assertSessionCurrent(
+    userId: string,
+    version: unknown,
+    credentialVersion: unknown,
+  ) {
+    if (
+      typeof credentialVersion !== 'string' ||
+      !/^[a-f0-9]{64}$/.test(credentialVersion)
+    )
+      throw this.invalidCredentials();
+
+    const user = await this.userService.findByIdForAuth(userId);
+    if (
+      !user?.passwordHash ||
+      !timingSafeEqual(
+        Buffer.from(credentialVersion, 'hex'),
+        Buffer.from(this.credentialVersion(user.passwordHash), 'hex'),
+      )
+    )
+      throw this.invalidCredentials();
+
     const current = await this.sessionRevision(userId);
     if (current === undefined) return;
     const supplied = version === undefined ? 0 : version;
@@ -258,7 +288,13 @@ export default class AuthService {
     await this.userService.updatePassword(userId, passwordHash, false, null);
     this.authContextCache.delete(userId);
 
-    return { ok: true };
+    const sessionVersion = await this.sessionRevision(userId, passwordHash);
+    const token = this.jwt.sign({
+      sub: userId,
+      credentialVersion: this.credentialVersion(passwordHash),
+      ...(sessionVersion !== undefined ? { sessionVersion } : {}),
+    });
+    return { ok: true, token };
   }
 
   async getMe(userId: string): Promise<AuthenticatedUser> {

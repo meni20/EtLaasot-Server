@@ -1,4 +1,5 @@
 import {
+  BadRequestException,
   Injectable,
   Logger,
   NotFoundException,
@@ -22,6 +23,30 @@ const SELF_TEST_PAYLOAD = {
   tag: 'etlaasot-self-test',
 };
 
+const PUSH_HOSTS = new Set([
+  'fcm.googleapis.com',
+  'updates.push.services.mozilla.com',
+]);
+
+function isSupportedPushEndpoint(endpoint: string): boolean {
+  try {
+    const url = new URL(endpoint);
+    return (
+      url.href === endpoint &&
+      url.protocol === 'https:' &&
+      !url.username &&
+      !url.password &&
+      !url.port &&
+      !url.hash &&
+      (PUSH_HOSTS.has(url.hostname) ||
+        url.hostname.endsWith('.push.apple.com') ||
+        url.hostname.endsWith('.notify.windows.com'))
+    );
+  } catch {
+    return false;
+  }
+}
+
 type VapidConfig = {
   subject: string;
   publicKey: string;
@@ -43,6 +68,9 @@ export class PushNotificationService {
   }
 
   async register(userUuid: string, dto: RegisterPushSubscriptionDto) {
+    if (!isSupportedPushEndpoint(dto.endpoint)) {
+      throw new BadRequestException('Unsupported push notification endpoint');
+    }
     await this.repository.upsert(userUuid, dto);
     return { enabled: true };
   }
@@ -92,6 +120,8 @@ export class PushNotificationService {
     subscription: PushSubscriptionRecord,
     vapid: VapidConfig,
   ): Promise<'delivered' | 'expired' | 'failed'> {
+    if (!isSupportedPushEndpoint(subscription.endpoint)) return 'failed';
+
     try {
       await webPush.sendNotification(
         {
@@ -104,6 +134,7 @@ export class PushNotificationService {
         JSON.stringify(SELF_TEST_PAYLOAD),
         {
           TTL: 60,
+          timeout: 5000,
           urgency: 'normal',
           topic: 'etlaasot-self-test',
           vapidDetails: {

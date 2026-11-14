@@ -10,7 +10,7 @@ import {
   UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { MultipartFileInterceptor } from '../../common/multipart-file.interceptor';
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
 import { TraineeDocumentAccessGuard } from './trainee-document-access.guard';
 import type { DocumentRequest } from './trainee-document-access.guard';
@@ -33,14 +33,14 @@ export class TraineeDocumentController {
   @Put(':documentType')
   @Header('Cache-Control', 'private, no-store')
   @UseInterceptors(
-    FileInterceptor('file', {
+    MultipartFileInterceptor('file', {
       // Busboy signals a limit at equality. Allow the inclusive product limit;
       // validation also enforces <= MAX_DOCUMENT_SIZE on the complete buffer.
       limits: {
-        fileSize: MAX_DOCUMENT_SIZE + 1,
+        fileSize: MAX_DOCUMENT_SIZE,
         files: 1,
         fields: 0,
-        parts: 2,
+        parts: 1,
       },
     }),
   )

@@ -1,5 +1,5 @@
 import type { VolunteerPurpose } from './volunteer.contract';
-import { FileInterceptor } from '@nestjs/platform-express';
+import { MultipartFileInterceptor } from '../../common/multipart-file.interceptor';
 import {
   Body,
   CanActivate,
@@ -239,8 +239,8 @@ export class ApplicantController {
   }
   @Post('me/attachments/:kind')
   @UseInterceptors(
-    FileInterceptor('file', {
-      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3 },
+    MultipartFileInterceptor('file', {
+      limits: { fileSize: 10 * 1024 * 1024, files: 1, fields: 3, parts: 4 },
     }),
   )
   attachments(
