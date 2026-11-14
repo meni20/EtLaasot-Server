@@ -113,26 +113,32 @@ export class DraftDeletionService implements OnModuleInit, OnModuleDestroy {
     this.running = true;
     const claim = randomUUID();
     let app: string | null = null;
+    let stage = 'claim';
     try {
       app = await this.call<string | null>(
         'registration_private.draft_delete_claim(CAST(:claim AS uuid))',
         { claim },
       );
       if (!app) return;
+      stage = 'storage';
       await this.integration.eraseUnsubmittedDraftFiles(app);
+      stage = 'complete';
       await this.call(
         'registration_private.draft_delete_complete(CAST(:id AS uuid),CAST(:claim AS uuid))',
         { id: app, claim },
       );
-    } catch {
-      if (app)
+    } catch (error) {
+      const code = (error as { original?: { code?: unknown } } | null)?.original?.code;
+      const sqlState = typeof code === 'string' && /^[0-9A-Z]{5}$/.test(code)
+        ? ` (SQLSTATE ${code})`
+        : '';
+      this.logger.warn(`Draft erasure failed at ${stage}${sqlState}`);
+      if (app) {
         await this.call(
           'registration_private.draft_delete_fail(CAST(:id AS uuid),CAST(:claim AS uuid))',
           { id: app, claim },
-        ).catch(() => {});
-      this.logger.warn(
-        'Draft erasure incomplete; no completion claimed; retry recorded',
-      );
+        ).catch(() => this.logger.warn('Draft erasure retry could not be recorded; lease recovery applies'));
+      }
     } finally {
       this.running = false;
     }

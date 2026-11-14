@@ -66,7 +66,7 @@ integration('Permanent draft deletion — isolated real PostgreSQL', () => {
       { logging: false },
     );
     for (const name of readdirSync('migrations')
-      .filter((n) => /^03[0-8]_/.test(n))
+      .filter((n) => /^(03[0-9]|04[017])_/.test(n))
       .sort())
       await db.query(readFileSync('migrations/' + name, 'utf8'), {
         logging: false,
@@ -98,6 +98,24 @@ integration('Permanent draft deletion — isolated real PostgreSQL', () => {
       'TRUNCATE public.registration_draft_deletions,public.trainee_application_evidence,public.trainee_application_events,public.trainee_application_versions,public.applicant_sessions,public.onboarding_deliveries,public.trainee_applications,storage.objects CASCADE',
       { logging: false },
     );
+  });
+  it.each(['TRAINEE', 'VOLUNTEER'])('purges credential-bearing %s drafts and preserves another draft', async (type) => {
+    const target = await seed(type);
+    const otherDraft = await seed(type);
+    for (const row of [target, otherDraft]) {
+      await q(
+        "INSERT INTO public.application_credentials(application_id,national_id_hash,password_hash,login_email) VALUES(:id,:hash,'$argon2id$fixture','fixture@example.invalid')",
+        row,
+      );
+    }
+    await begin(target.id);
+    const lease = randomUUID();
+    await claim(lease);
+    await finish(target.id, lease);
+    expect(await q('SELECT application_id FROM public.application_credentials WHERE application_id IN (:target,:other)', { target: target.id, other: otherDraft.id }))
+      .toEqual([{ application_id: otherDraft.id }]);
+    expect(await q('SELECT id FROM public.trainee_applications WHERE id IN (:target,:other)', { target: target.id, other: otherDraft.id }))
+      .toEqual([{ id: otherDraft.id }]);
   });
   async function seed(
     type = 'TRAINEE',
