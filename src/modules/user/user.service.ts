@@ -314,6 +314,24 @@ export default class UserService {
     );
   }
 
+  public async getBranchManagers() {
+    try {
+      return await this.userRepository.getBranchManagers();
+    } catch (err) {
+      throw safeDatabaseFailure(err);
+    }
+  }
+
+  public removeBranchAdminRole(userId: string, actorId: string) {
+    return this.sequelize.transaction((transaction) =>
+      this.userRepository.removeBranchAdminRole(
+        userId,
+        actorId,
+        transaction,
+      ),
+    );
+  }
+
   public async countByBranchAndRole(branchId: string, roleId: number) {
     try {
       return await this.userRepository.countByBranchAndRole(branchId, roleId);

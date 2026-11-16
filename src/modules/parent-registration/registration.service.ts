@@ -191,7 +191,10 @@ export class RegistrationService {
         const identity = getNationalIdDetails(decryptNationalId(user.nationalIdEncrypted));
         if (identity.nationalIdHash !== user.nationalIdHash)
           throw new ConflictException('Volunteer account identity is inconsistent');
-        const data = { volunteer: { nationalId: identity.normalizedNationalId } };
+        const data = {
+          volunteer: { nationalId: identity.normalizedNationalId },
+          agreements: { version: VOLUNTEER_AGREEMENT_VERSION },
+        };
         return {
           application: { id: '', branchId: user.branchId, registrationType: 'VOLUNTEER', status: 'DRAFT', revision: 0, currentStep: 1, documentStatus: 'PENDING', feedbackReason: null },
           data, contentHash: volunteerContentHash(data), declarations: [...VOLUNTEER_DECLARATIONS],
@@ -216,7 +219,7 @@ export class RegistrationService {
       await this.ownedForm(form, user.id, user.branchId, 'VOLUNTEER');
       if (form.registrationType !== 'VOLUNTEER')
         throw new ConflictException('Active registration type does not match volunteer');
-      const previous = readVolunteerData(form.draftData);
+      const previous = this.volunteerRenewalData(form.draftData);
       if (!input) return this.volunteerSnapshot(form, previous);
       if (!isEditable(form.status)) throw new ConflictException('Submitted content is immutable');
       this.revision(form, input.revision);
@@ -252,7 +255,7 @@ export class RegistrationService {
         throw new BadRequestException('Invalid volunteer attachment kind');
       await this.ownedForm(form, user.id, user.branchId, 'VOLUNTEER');
       this.revision(form, revision);
-      return this.integration.uploadVolunteer(form.id, kind, readVolunteerData(form.draftData), bytes, purpose, t, 'renewal');
+      return this.integration.uploadVolunteer(form.id, kind, this.volunteerRenewalData(form.draftData), bytes, purpose, t, 'renewal');
     });
   }
 
@@ -311,6 +314,16 @@ export class RegistrationService {
     }
     return { ...this.volunteerSnapshot(result.form, readVolunteerData(result.version.formData)),
       versionId: result.version.id, versionNumber: result.version.versionNumber, idempotent: result.idempotent };
+  }
+
+  private volunteerRenewalData(raw: unknown) {
+    const data = readVolunteerData(raw);
+    if (!data.agreements?.version)
+      data.agreements = {
+        ...data.agreements,
+        version: VOLUNTEER_AGREEMENT_VERSION,
+      };
+    return data;
   }
 
   volunteerStatus(actor: AuthUser) {

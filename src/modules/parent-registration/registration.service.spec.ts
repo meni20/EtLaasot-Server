@@ -351,6 +351,50 @@ describe('Parent registration lifecycle (offline repository doubles)', () => {
       else process.env.VOLUNTEER_ANNUAL_RENEWAL_ENABLED = flag;
     }
   });
+  it('normalizes legacy volunteer renewal agreement metadata before signing', async () => {
+    const volunteer = { userId: trainee, roles: [{ roleId: 1 }] };
+    repo.lockTrainee.mockResolvedValue({ user, roles: volunteer.roles });
+    form.registrationType = 'VOLUNTEER';
+    form.draftData = protectVolunteerData({
+      volunteer: {
+        nationalId: '123456782',
+        firstName: 'Synthetic',
+        lastName: 'Volunteer',
+      },
+      agreements: { volunteer: true },
+    });
+    const integration = {
+      enabled: () => true,
+      attest: jest.fn(),
+      uploadVolunteer: jest.fn(async () => ({ documentId: randomUUID() })),
+    };
+    service = new RegistrationService(
+      repo,
+      new AuthorizationService(),
+      new DeferredRegistrationDocumentGenerator(),
+      integration as never,
+    );
+    const snapshot = await service.volunteerRenewal(volunteer);
+    expect(snapshot?.data.agreements?.version).toBe('volunteer-v1');
+    await service.uploadVolunteerRenewal(
+      volunteer,
+      form.draftRevision,
+      'SIGNATURE',
+      Buffer.from('synthetic-png'),
+      'VOLUNTEER_AGREEMENT',
+    );
+    expect(integration.uploadVolunteer).toHaveBeenCalledWith(
+      form.id,
+      'SIGNATURE',
+      expect.objectContaining({
+        agreements: expect.objectContaining({ version: 'volunteer-v1' }),
+      }),
+      expect.any(Buffer),
+      'VOLUNTEER_AGREEMENT',
+      expect.anything(),
+      'renewal',
+    );
+  });
   it('applies admin scope on lists and accepts super admin', async () => {
     service.list(actors.admin, { page: 1, pageSize: 25 });
     expect(repo.list).toHaveBeenLastCalledWith(

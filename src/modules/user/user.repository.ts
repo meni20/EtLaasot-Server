@@ -363,6 +363,102 @@ export default class UserRepository {
     });
   }
 
+  public async getBranchManagers() {
+    const managers = await User.findAll({
+      where: { isActive: true },
+      attributes: ['id', 'name', 'branchId'],
+      include: [
+        {
+          model: UserRole,
+          where: { roleId: AUTH_ROLES.BRANCH_ADMIN.id },
+          attributes: [],
+          required: true,
+        },
+        {
+          model: Branch,
+          attributes: ['id', 'name'],
+          required: true,
+        },
+      ],
+      order: [
+        [Branch, 'name', 'ASC'],
+        ['name', 'ASC'],
+      ],
+    });
+    return managers.map((manager) => ({
+      id: manager.id,
+      name: manager.name,
+      branchId: manager.branchId,
+      branchName: manager.branch.name,
+    }));
+  }
+
+  public async removeBranchAdminRole(
+    userId: string,
+    actorId: string,
+    transaction: Transaction,
+  ) {
+    const user = await User.findByPk(userId, {
+      attributes: ['id', 'name', 'branchId', 'isActive'],
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    if (!user || !user.isActive || !user.branchId)
+      throw new NotFoundException('Active branch manager not found');
+    const roles = await UserRole.findAll({
+      where: { userId },
+      paranoid: false,
+      transaction,
+      lock: transaction.LOCK.UPDATE,
+    });
+    const active = roles.filter((role) => !role.deletedAt);
+    if (active.some((role) => role.roleId === AUTH_ROLES.SUPER_ADMIN.id))
+      throw new ConflictException({
+        code: 'SUPER_ADMIN_PROTECTED',
+        message: 'Super admin accounts cannot be changed here',
+      });
+    const branchAdmin = active.find(
+      (role) => role.roleId === AUTH_ROLES.BRANCH_ADMIN.id,
+    );
+    if (!branchAdmin)
+      throw new ConflictException({
+        code: 'BRANCH_ADMIN_ROLE_CHANGED',
+        message: 'The user is no longer a branch manager',
+      });
+    let restoredRoleId = active.find((role) =>
+      [AUTH_ROLES.VOLUNTEER.id, AUTH_ROLES.TRAINEE.id].includes(role.roleId),
+    )?.roleId;
+    if (!restoredRoleId) {
+      restoredRoleId = AUTH_ROLES.VOLUNTEER.id;
+      const values = {
+        resourceId: user.branchId,
+        grantedBy: actorId,
+        expirationDate: new Date(
+          new Date().setFullYear(new Date().getFullYear() + 1),
+        ),
+      };
+      const previous = roles.find(
+        (role) => role.roleId === AUTH_ROLES.VOLUNTEER.id,
+      );
+      if (previous) {
+        await previous.restore({ transaction });
+        await previous.update(values, { transaction });
+      } else {
+        await UserRole.create(
+          { userId, roleId: AUTH_ROLES.VOLUNTEER.id, ...values },
+          { transaction },
+        );
+      }
+    }
+    await branchAdmin.destroy({ transaction });
+    return {
+      id: user.id,
+      name: user.name,
+      branchId: user.branchId,
+      restoredRoleId,
+    };
+  }
+
   public async archiveUser(
     id: string,
     data: {
