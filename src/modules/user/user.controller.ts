@@ -157,6 +157,24 @@ export default class UserController {
     );
   }
 
+  @Get('branch-managers')
+  public getBranchManagers(@Req() req: any) {
+    this.authorizationService.assertSuperAdmin(req.user);
+    return this.userService.getBranchManagers();
+  }
+
+  @Patch(':userId/remove-branch-admin')
+  public removeBranchAdminRole(
+    @Param('userId', new ParseUUIDPipe({ version: '4' })) userId: string,
+    @Req() req: any,
+  ) {
+    this.authorizationService.assertSuperAdmin(req.user);
+    const actorId = this.authorizationService.getActorId(req.user);
+    if (!actorId)
+      throw new BadRequestException('Authenticated actor is required');
+    return this.userService.removeBranchAdminRole(userId, actorId);
+  }
+
   @Get(':userUuid/national-id')
   public async getNationalId(
     @Param('userUuid', new ParseUUIDPipe({ version: '4' })) userUuid: string,

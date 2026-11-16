@@ -1,4 +1,5 @@
 import { BadRequestException } from '@nestjs/common';
+import { randomUUID } from 'crypto';
 import { AuthorizationService } from '../auth/authorization.service';
 import UserController from './user.controller';
 import UserService from './user.service';
@@ -100,5 +101,41 @@ describe('Trainee directory scope', () => {
       'archived',
       true,
     );
+  });
+});
+
+describe('Super admin branch manager management', () => {
+  const getBranchManagers = jest.fn();
+  const removeBranchAdminRole = jest.fn();
+  const controller = new UserController(
+    { getBranchManagers, removeBranchAdminRole } as never,
+    new AuthorizationService(),
+  );
+  const actorId = randomUUID();
+  const managerId = randomUUID();
+  const superRequest = {
+    user: { userId: actorId, roles: [{ roleId: 10001 }] },
+  };
+  const branchAdminRequest = {
+    user: { userId: randomUUID(), roles: [{ roleId: 10000, resourceId: 'a' }] },
+  };
+
+  beforeEach(() => {
+    getBranchManagers.mockReset();
+    removeBranchAdminRole.mockReset();
+  });
+
+  it('lists and removes branch managers only for a super admin', async () => {
+    getBranchManagers.mockResolvedValue([]);
+    removeBranchAdminRole.mockResolvedValue({ id: managerId });
+    await expect(controller.getBranchManagers(superRequest)).resolves.toEqual([]);
+    await expect(
+      controller.removeBranchAdminRole(managerId, superRequest),
+    ).resolves.toEqual({ id: managerId });
+    expect(removeBranchAdminRole).toHaveBeenCalledWith(managerId, actorId);
+    expect(() => controller.getBranchManagers(branchAdminRequest)).toThrow();
+    expect(() =>
+      controller.removeBranchAdminRole(managerId, branchAdminRequest),
+    ).toThrow();
   });
 });
