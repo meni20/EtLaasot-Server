@@ -299,12 +299,23 @@ export class RegistrationIntegrationService {
       throw new BadRequestException(
         'Signature PNG dimensions or size are invalid',
       );
-    if (
-      detected.mime === 'application/pdf' &&
-      (!bytes.subarray(0, 5).equals(Buffer.from('%PDF-')) ||
-        !bytes.subarray(-2048).includes(Buffer.from('%%EOF')))
-    )
-      throw new BadRequestException('Invalid PDF envelope');
+    if (detected.mime === 'application/pdf') {
+      try {
+        const { PDFDocument, ParseSpeeds } = await import('pdf-lib');
+        const document = await PDFDocument.load(bytes, {
+          ignoreEncryption: false,
+          parseSpeed: ParseSpeeds.Fastest,
+          throwOnInvalidObject: true,
+          updateMetadata: false,
+        });
+        if (document.getPageCount() < 1) throw new Error('PDF has no pages');
+      } catch {
+        throw new BadRequestException({
+          code: 'INVALID_PDF',
+          message: 'קובץ ה-PDF פגום או אינו נתמך. יש לבחור קובץ PDF תקין.',
+        });
+      }
+    }
     return {
       mimeType: detected.mime,
       extension:
@@ -562,9 +573,16 @@ export class RegistrationIntegrationService {
       createdAt,
       versionId: null,
     };
-    const doc = scope === 'application'
-      ? await ApplicationEvidence.create({ ...evidence, applicationId: id }, { transaction: t })
-      : await RegistrationFormDocument.create({ ...evidence, formId: id }, { transaction: t });
+    const doc =
+      scope === 'application'
+        ? await ApplicationEvidence.create(
+            { ...evidence, applicationId: id },
+            { transaction: t },
+          )
+        : await RegistrationFormDocument.create(
+            { ...evidence, formId: id },
+            { transaction: t },
+          );
     await this.download(doc, scope, id, t);
     return {
       documentId: docId,
@@ -668,19 +686,16 @@ export class RegistrationIntegrationService {
       key = getRequiredEnv('REGISTRATION_DOCUMENTS_API_KEY');
     if (!isAllowedDocumentsBaseUrl(url) || !/^[a-f0-9]{64}$/.test(key))
       this.fail('documents-configuration');
-    const response = await fetch(
-      new URL('/internal/documents/render', url),
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Internal-Api-Key': key,
-        },
-        body: JSON.stringify(payload),
-        redirect: 'error',
-        signal: AbortSignal.timeout(60000),
+    const response = await fetch(new URL('/internal/documents/render', url), {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Internal-Api-Key': key,
       },
-    );
+      body: JSON.stringify(payload),
+      redirect: 'error',
+      signal: AbortSignal.timeout(60000),
+    });
     if (
       !response.ok ||
       !response.headers.get('content-type')?.startsWith('application/pdf')
@@ -983,39 +998,83 @@ export class RegistrationIntegrationService {
           const renewal = version as RegistrationFormVersion;
           const data = readVolunteerData(renewal.formData);
           const hash = volunteerContentHash(data);
-          if (renewal.signingMetadata.contentHash !== hash ||
-              renewal.templateVersion !== VOLUNTEER_TEMPLATE_VERSION ||
-              renewal.declarationVersion !== VOLUNTEER_AGREEMENT_VERSION ||
-              JSON.stringify(renewal.declarations) !== JSON.stringify(VOLUNTEER_DECLARATIONS))
-            throw new ConflictException('Immutable volunteer renewal version does not match');
+          if (
+            renewal.signingMetadata.contentHash !== hash ||
+            renewal.templateVersion !== VOLUNTEER_TEMPLATE_VERSION ||
+            renewal.declarationVersion !== VOLUNTEER_AGREEMENT_VERSION ||
+            JSON.stringify(renewal.declarations) !==
+              JSON.stringify(VOLUNTEER_DECLARATIONS)
+          )
+            throw new ConflictException(
+              'Immutable volunteer renewal version does not match',
+            );
           const submitted = new Date(renewal.submittedAt);
-          await this.verifyVolunteerSigned(id, data, docs, t, submitted, 'renewal');
-          const branch = owner.branchId && await Branch.findByPk(owner.branchId, { transaction: t });
+          await this.verifyVolunteerSigned(
+            id,
+            data,
+            docs,
+            t,
+            submitted,
+            'renewal',
+          );
+          const branch =
+            owner.branchId &&
+            (await Branch.findByPk(owner.branchId, { transaction: t }));
           if (!branch) throw new ConflictException('Renewal branch not found');
-          const bytes = await this.renderVolunteerPdf('renewal', id, data, docs, {
-            reference: renewal.id, branch: branch.name, submittedAt: submitted.toISOString(),
-            declarations: renewal.declarations,
-          });
+          const bytes = await this.renderVolunteerPdf(
+            'renewal',
+            id,
+            data,
+            docs,
+            {
+              reference: renewal.id,
+              branch: branch.name,
+              submittedAt: submitted.toISOString(),
+              declarations: renewal.declarations,
+            },
+          );
           const { name, store } = await this.bucket(t);
           const pdfId = randomUUID();
           const storagePath = `registration/renewal/${id}/${hash}/pdf/${pdfId}.pdf`;
           const { error } = await store.upload(storagePath, bytes, {
-            contentType: 'application/pdf', upsert: false, cacheControl: '0',
+            contentType: 'application/pdf',
+            upsert: false,
+            cacheControl: '0',
           });
           if (error) this.fail('volunteer-renewal-pdf-upload');
           const now = new Date();
-          const pdf = await RegistrationFormDocument.create({
-            id: pdfId, formId: id, versionId: renewal.id, registrationType: 'VOLUNTEER',
-            kind: 'REGISTRATION_PDF', storageBucket: name, storagePath, mimeType: 'application/pdf',
-            fileSize: bytes.length, checksum: sha(bytes), contentHash: hash, verifiedAt: now,
-            templateVersion: VOLUNTEER_TEMPLATE_VERSION, sourceChecksum: VOLUNTEER_SOURCE_SHA256, generatedAt: now,
-          }, { transaction: t });
+          const pdf = await RegistrationFormDocument.create(
+            {
+              id: pdfId,
+              formId: id,
+              versionId: renewal.id,
+              registrationType: 'VOLUNTEER',
+              kind: 'REGISTRATION_PDF',
+              storageBucket: name,
+              storagePath,
+              mimeType: 'application/pdf',
+              fileSize: bytes.length,
+              checksum: sha(bytes),
+              contentHash: hash,
+              verifiedAt: now,
+              templateVersion: VOLUNTEER_TEMPLATE_VERSION,
+              sourceChecksum: VOLUNTEER_SOURCE_SHA256,
+              generatedAt: now,
+            },
+            { transaction: t },
+          );
           await this.download(pdf, 'renewal', id, t);
           await owner.update({ documentStatus: 'READY' }, { transaction: t });
-          await RegistrationFormHistory.create({
-            formId: id, versionId: renewal.id, actorUuid: actorId ?? (owner as RegistrationForm).traineeUuid,
-            action: 'PDF_GENERATED', metadata: { documentStatus: 'READY' },
-          }, { transaction: t });
+          await RegistrationFormHistory.create(
+            {
+              formId: id,
+              versionId: renewal.id,
+              actorUuid: actorId ?? (owner as RegistrationForm).traineeUuid,
+              action: 'PDF_GENERATED',
+              metadata: { documentStatus: 'READY' },
+            },
+            { transaction: t },
+          );
           return { status: 'READY' as const, versionId: renewal.id };
         }
         const data = readData(version.formData as RegistrationData);

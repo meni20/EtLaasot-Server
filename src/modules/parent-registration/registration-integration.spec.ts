@@ -8,6 +8,7 @@ import {
 } from './registration-integration.service';
 import { registrationRenderRequest } from './registration-render.contract';
 import { fictionalRegistration } from './registration.test-fixtures';
+import { PDFDocument } from 'pdf-lib';
 describe('Phase 5 private integration safety (offline)', () => {
   const original = { ...process.env };
   const serviceRoleKey = [
@@ -161,6 +162,35 @@ describe('Phase 5 private integration safety (offline)', () => {
     await expect(
       s.inspect(Buffer.alloc(10 * 1024 * 1024 + 1), 'SIGNATURE'),
     ).rejects.toThrow();
+  });
+  it('accepts a valid PDF with trailing data after its final EOF marker', async () => {
+    const pdf = await PDFDocument.create();
+    pdf.addPage([300, 400]);
+    const bytes = Buffer.concat([
+      Buffer.from(await pdf.save()),
+      Buffer.alloc(4096, 0x20),
+    ]);
+    const service = new RegistrationIntegrationService({} as never);
+
+    await expect(service.inspect(bytes, 'PHYSICIAN_SUMMARY')).resolves.toEqual({
+      mimeType: 'application/pdf',
+      extension: 'pdf',
+    });
+  });
+  it('rejects a malformed file that only resembles a PDF envelope', async () => {
+    const service = new RegistrationIntegrationService({} as never);
+    const malformed = Buffer.from(
+      '%PDF-1.7\n1 0 obj\n<< /Type /Catalog >>\nendobj\n%%EOF',
+    );
+
+    await expect(
+      service.inspect(malformed, 'PHYSICIAN_SUMMARY'),
+    ).rejects.toMatchObject({
+      response: {
+        code: 'INVALID_PDF',
+        message: 'קובץ ה-PDF פגום או אינו נתמך. יש לבחור קובץ PDF תקין.',
+      },
+    });
   });
   it('never returns unsent draft attachments to a reviewer', () => {
     const docs = [
