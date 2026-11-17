@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto';
+import Branch from '../branch/entities/branch.entity';
 import UserRole from '../user-role/enitites/user-role.entity';
 import User from './entities/user.entity';
 import UserRepository from './user.repository';
@@ -14,6 +15,21 @@ describe('Branch manager role removal', () => {
   };
 
   afterEach(() => jest.restoreAllMocks());
+
+  it('sorts managers through the declared branch association alias', async () => {
+    const findAll = jest.spyOn(User, 'findAll').mockResolvedValue([]);
+
+    await new UserRepository().getBranchManagers();
+
+    expect(findAll).toHaveBeenCalledWith(
+      expect.objectContaining({
+        order: [
+          [{ model: Branch, as: 'branch' }, 'name', 'ASC'],
+          ['name', 'ASC'],
+        ],
+      }),
+    );
+  });
 
   it('restores the historical volunteer role and keeps the account', async () => {
     const branchAdmin = {

@@ -381,7 +381,7 @@ export default class UserRepository {
         },
       ],
       order: [
-        [Branch, 'name', 'ASC'],
+        [{ model: Branch, as: 'branch' }, 'name', 'ASC'],
         ['name', 'ASC'],
       ],
     });
