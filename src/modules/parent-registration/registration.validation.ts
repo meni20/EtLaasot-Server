@@ -151,10 +151,17 @@ function fail(path: string): never {
     field: path,
   });
 }
-function shape(value: unknown, rule: Rule, path: string): void {
+function shape(
+  value: unknown,
+  rule: Rule,
+  path: string,
+  incomplete = true,
+): void {
   if (Array.isArray(rule)) {
     if (!Array.isArray(value) || value.length > 30) fail(path);
-    value.forEach((item, i) => shape(item, rule[0], `${path}.${i}`));
+    value.forEach((item, i) =>
+      shape(item, rule[0], `${path}.${i}`, incomplete),
+    );
     return;
   }
   if (typeof rule === 'object') {
@@ -174,6 +181,7 @@ function shape(value: unknown, rule: Rule, path: string): void {
           ? 'text'
           : rule[key],
         `${path}.${key}`,
+        incomplete,
       );
     }
     return;
@@ -200,17 +208,23 @@ function shape(value: unknown, rule: Rule, path: string): void {
   if (rule === 'size' && value.length > 50) fail(path);
   if (rule === 'uuid' && !isUUID(value, '4')) fail(path);
   if (rule === 'hash' && !/^[a-f0-9]{64}$/.test(value)) fail(path);
-  if (rule === 'id' && !/^\d{5,9}$/.test(value)) fail(path);
-  if (rule === 'email' && !isEmail(value)) fail(path);
-  if (rule === 'phone' && !/^[+\d() -]{5,30}$/.test(value)) fail(path);
+  if (!incomplete && rule === 'id' && !/^\d{5,9}$/.test(value)) fail(path);
+  if (!incomplete && rule === 'email' && !isEmail(value)) fail(path);
+  if (!incomplete && rule === 'phone' && !/^[+\d() -]{5,30}$/.test(value))
+    fail(path);
   if (
+    !incomplete &&
     rule === 'date' &&
     (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
       !isISO8601(value, { strict: true }) ||
       value > new Date().toISOString().slice(0, 10))
   )
     fail(path);
-  if (rule === 'date' && Date.now() - Date.parse(value) > 121 * 366 * 86400000)
+  if (
+    !incomplete &&
+    rule === 'date' &&
+    Date.now() - Date.parse(value) > 121 * 366 * 86400000
+  )
     fail(path);
   if (
     rule === 'instant' &&
@@ -239,7 +253,8 @@ const required = (value: unknown, path: string) => {
     fail(path);
 };
 export function validateSubmission(data: RegistrationData) {
-  validateDraft(data);
+  if (Buffer.byteLength(JSON.stringify(data) ?? '') > 65536) fail('data.size');
+  shape(data, schema, 'data', false);
   for (const [path, value] of Object.entries({
     'trainee.name': data.trainee?.name,
     'trainee.familyName': data.trainee?.familyName,
@@ -322,7 +337,8 @@ export function validateSubmission(data: RegistrationData) {
       if (
         !signing?.documentId ||
         !signing.signedAt ||
-        signing.contentHash !== contentHash(data)
+        (signing.contentHash !== signatureContentHash(data, parent) &&
+          signing.contentHash !== contentHash(data))
       )
         fail(`signatures.${parent}`);
     } else if (
@@ -353,6 +369,56 @@ export const contentHash = (data: RegistrationData) => {
   const { signatures: _ignored, ...content } = data;
   return createHash('sha256').update(canonical(content)).digest('hex');
 };
+export type RegistrationSigner = 'parent1' | 'parent2';
+export function signatureCoveredData(
+  data: RegistrationData,
+  signer: RegistrationSigner,
+) {
+  return {
+    declarationVersion: data.declarationVersion,
+    declarationAcceptances: data.declarationAcceptances,
+    trainee: {
+      name: data.trainee?.name,
+      familyName: data.trainee?.familyName,
+      nationalId: data.trainee?.nationalId,
+    },
+    signer: {
+      name: data[signer]?.name,
+      nationalId: data[signer]?.nationalId,
+      notApplicable: data[signer]?.notApplicable === true,
+    },
+  };
+}
+export const signatureContentHash = (
+  data: RegistrationData,
+  signer: RegistrationSigner,
+) =>
+  createHash('sha256')
+    .update(canonical(signatureCoveredData(data, signer)))
+    .digest('hex');
+export function reconcileRegistrationSignatures(
+  previous: RegistrationData,
+  next: RegistrationData,
+) {
+  const copy = structuredClone(next);
+  for (const signer of ['parent1', 'parent2'] as const) {
+    if (
+      canonical(signatureCoveredData(previous, signer)) !==
+      canonical(signatureCoveredData(copy, signer))
+    )
+      delete copy.signatures?.[signer];
+    else if (
+      copy.signatures?.[signer] &&
+      copy.signatures[signer]!.contentHash !==
+        signatureContentHash(previous, signer) &&
+      contentHash(previous) !== contentHash(copy)
+    )
+      delete copy.signatures[signer];
+  }
+  if (copy.signatures && !Object.keys(copy.signatures).length)
+    delete copy.signatures;
+  return copy;
+}
 // Encrypt national IDs inside JSONB using the existing versioned AES-GCM mechanism.
 // Never apply User.toJSON to evidence: it would silently remove signed fields.
 export function protectData(

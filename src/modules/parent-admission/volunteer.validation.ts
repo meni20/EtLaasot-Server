@@ -9,6 +9,7 @@ import {
 import {
   canonical,
   coveredData,
+  reconcileSignatures,
   volunteerIssues,
   VOLUNTEER_PURPOSES,
   needsParent,
@@ -78,7 +79,7 @@ function invalid(path: string): never {
     message: 'Invalid or incomplete volunteer field',
   });
 }
-function shape(value: unknown, rule: Rule, path: string) {
+function shape(value: unknown, rule: Rule, path: string, incomplete = true) {
   if (Array.isArray(rule)) {
     if (typeof value !== 'string' || !rule.includes(value)) invalid(path);
     return;
@@ -102,6 +103,7 @@ function shape(value: unknown, rule: Rule, path: string) {
           ? 'text'
           : rule[key],
         `${path}.${key}`,
+        incomplete,
       );
     }
     return;
@@ -120,17 +122,19 @@ function shape(value: unknown, rule: Rule, path: string) {
     if (['uuid', 'hash', 'instant'].includes(rule)) invalid(path);
     return;
   }
-  if (rule === 'id' && !/^\d{5,9}$/.test(value)) invalid(path);
+  if (!incomplete && rule === 'id' && !/^\d{5,9}$/.test(value)) invalid(path);
   if (rule === 'uuid' && !isUUID(value, '4')) invalid(path);
   if (rule === 'hash' && !/^[a-f0-9]{64}$/.test(value)) invalid(path);
-  if (rule === 'phone' && !/^[+\d() -]{5,30}$/.test(value)) invalid(path);
-  if (rule === 'email' && !isEmail(value)) invalid(path);
+  if (!incomplete && rule === 'phone' && !/^[+\d() -]{5,30}$/.test(value))
+    invalid(path);
+  if (!incomplete && rule === 'email' && !isEmail(value)) invalid(path);
   if (
     rule === 'instant' &&
     (!/^\d{4}-\d{2}-\d{2}T/.test(value) || !Number.isFinite(Date.parse(value)))
   )
     invalid(path);
   if (
+    !incomplete &&
     rule === 'date' &&
     (!/^\d{4}-\d{2}-\d{2}$/.test(value) ||
       !Number.isFinite(Date.parse(value)) ||
@@ -152,13 +156,76 @@ export const volunteerScopeHash = (
   createHash('sha256')
     .update(canonical(coveredData(data, purpose, VOLUNTEER_AGREEMENT_VERSION)))
     .digest('hex');
+function legacyCoveredData(data: VolunteerData, purpose: VolunteerPurpose) {
+  const volunteer = data.volunteer ?? {};
+  const identity = {
+    firstName: volunteer.firstName,
+    lastName: volunteer.lastName,
+    nationalId: volunteer.nationalId,
+    dateOfBirth: volunteer.dateOfBirth,
+  };
+  if (purpose === 'VOLUNTEER_AGREEMENT')
+    return {
+      purpose,
+      version: VOLUNTEER_AGREEMENT_VERSION,
+      volunteer,
+      questionnaire: data.questionnaire,
+      acknowledged: data.agreements?.volunteer,
+    };
+  if (purpose === 'PARENTAL_CONSENT')
+    return {
+      purpose,
+      version: VOLUNTEER_AGREEMENT_VERSION,
+      identity,
+      parent: data.parentConsent,
+    };
+  const { signatures, ...content } = data;
+  return {
+    purpose,
+    version: VOLUNTEER_AGREEMENT_VERSION,
+    content,
+    priorSignatures: {
+      VOLUNTEER_AGREEMENT: signatures?.VOLUNTEER_AGREEMENT,
+      PARENTAL_CONSENT: signatures?.PARENTAL_CONSENT,
+    },
+  };
+}
+export const legacyVolunteerScopeHash = (
+  data: VolunteerData,
+  purpose: VolunteerPurpose,
+) =>
+  createHash('sha256')
+    .update(canonical(legacyCoveredData(data, purpose)))
+    .digest('hex');
+export function reconcileVolunteerSignatures(
+  previous: VolunteerData,
+  next: VolunteerData,
+) {
+  const copy = reconcileSignatures(previous, next, VOLUNTEER_AGREEMENT_VERSION);
+  for (const purpose of VOLUNTEER_PURPOSES) {
+    const signing = copy.signatures?.[purpose];
+    if (
+      signing &&
+      signing.contentHash !== volunteerScopeHash(previous, purpose) &&
+      (signing.contentHash !== legacyVolunteerScopeHash(previous, purpose) ||
+        legacyVolunteerScopeHash(previous, purpose) !==
+          legacyVolunteerScopeHash(copy, purpose))
+    )
+      delete copy.signatures?.[purpose];
+  }
+  if (copy.signatures && !Object.keys(copy.signatures).length)
+    delete copy.signatures;
+  return copy;
+}
 export const volunteerContentHash = (data: VolunteerData) =>
   createHash('sha256').update(canonical(data)).digest('hex');
 export function validateVolunteerSubmission(
   data: VolunteerData,
   today?: string,
 ) {
-  validateVolunteerDraft(data);
+  if (Buffer.byteLength(JSON.stringify(data ?? {}), 'utf8') > 96 * 1024)
+    invalid('data');
+  shape(data, schema, 'data', false);
   const issues = volunteerIssues(data, VOLUNTEER_AGREEMENT_VERSION, today);
   if (issues.length) invalid(issues[0].path);
   const birth = data.volunteer!.dateOfBirth!;
@@ -188,7 +255,8 @@ export function validateVolunteerSubmission(
     if (
       s &&
       (s.agreementVersion !== VOLUNTEER_AGREEMENT_VERSION ||
-        s.contentHash !== volunteerScopeHash(data, purpose))
+        (s.contentHash !== volunteerScopeHash(data, purpose) &&
+          s.contentHash !== legacyVolunteerScopeHash(data, purpose)))
     )
       invalid(`signatures.${purpose}`);
   }
