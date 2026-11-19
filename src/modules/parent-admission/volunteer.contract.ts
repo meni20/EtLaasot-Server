@@ -112,21 +112,16 @@ export function coveredData(
     return {
       purpose,
       version,
-      volunteer: v,
-      questionnaire: data.questionnaire,
+      identity,
       acknowledged: data.agreements?.volunteer,
     };
   if (purpose === 'PARENTAL_CONSENT')
     return { purpose, version, identity, parent: data.parentConsent };
-  const { signatures, ...content } = data;
   return {
     purpose,
     version,
-    content,
-    priorSignatures: {
-      VOLUNTEER_AGREEMENT: signatures?.VOLUNTEER_AGREEMENT,
-      PARENTAL_CONSENT: signatures?.PARENTAL_CONSENT,
-    },
+    identity,
+    acknowledged: data.agreements?.confidentiality,
   };
 }
 export function reconcileSignatures(
@@ -142,6 +137,8 @@ export function reconcileSignatures(
     )
       delete copy.signatures?.[purpose];
   }
+  if (copy.signatures && !Object.keys(copy.signatures).length)
+    delete copy.signatures;
   return copy;
 }
 export interface VolunteerIssue {
@@ -174,7 +171,14 @@ export function volunteerIssues(
     'fatherName',
     'fatherPhone',
   ] as const)
-    if (!((key === 'motherPhone' && v.motherPhoneNotApplicable) || (key === 'fatherPhone' && v.fatherPhoneNotApplicable)) && !v[key]?.trim()) add(`volunteer.${key}`, 1);
+    if (
+      !(
+        (key === 'motherPhone' && v.motherPhoneNotApplicable) ||
+        (key === 'fatherPhone' && v.fatherPhoneNotApplicable)
+      ) &&
+      !v[key]?.trim()
+    )
+      add(`volunteer.${key}`, 1);
   if (needsParent(data, today))
     for (const key of ['school', 'grade'] as const)
       if (!v[key]?.trim()) add(`volunteer.${key}`, 1);
@@ -202,7 +206,14 @@ export function volunteerIssues(
   )
     add('volunteer.dateOfBirth', 1, 'תאריך הלידה אינו תקין');
   for (const key of ['phone', 'motherPhone', 'fatherPhone'] as const)
-    if (!((key === 'motherPhone' && v.motherPhoneNotApplicable) || (key === 'fatherPhone' && v.fatherPhoneNotApplicable)) && v[key] && !/^[+\d() -]{5,30}$/.test(v[key]!))
+    if (
+      !(
+        (key === 'motherPhone' && v.motherPhoneNotApplicable) ||
+        (key === 'fatherPhone' && v.fatherPhoneNotApplicable)
+      ) &&
+      v[key] &&
+      !/^[+\d() -]{5,30}$/.test(v[key]!)
+    )
       add(`volunteer.${key}`, 1, 'מספר הטלפון אינו תקין');
   for (const key of [
     'preference',

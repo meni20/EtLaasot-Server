@@ -29,6 +29,8 @@ import {
   readData,
   validateDraft,
   retainParentApplicability,
+  reconcileRegistrationSignatures,
+  signatureContentHash,
   validateSubmission,
 } from './registration.validation';
 import type { RegistrationData } from './registration.validation';
@@ -44,9 +46,25 @@ import { getBooleanEnv } from '../../config/env.util';
 import { volunteerAnnualBlockingEnabled } from './registration-request-access';
 import { getNationalIdDetails } from '../user/national-id.util';
 import { decryptNationalId } from '../user/national-id-encryption.util';
-import { VOLUNTEER_PURPOSES, reconcileSignatures, type VolunteerData, type VolunteerPurpose } from '../parent-admission/volunteer.contract';
-import { protectVolunteerData, readVolunteerData, validateVolunteerDraft, volunteerContentHash, volunteerScopeHash } from '../parent-admission/volunteer.validation';
-import { VOLUNTEER_AGREEMENT_VERSION, VOLUNTEER_DECLARATIONS, VOLUNTEER_LEGAL } from '../parent-admission/volunteer.legal';
+import {
+  VOLUNTEER_PURPOSES,
+  type VolunteerData,
+  type VolunteerPurpose,
+} from '../parent-admission/volunteer.contract';
+import {
+  legacyVolunteerScopeHash,
+  protectVolunteerData,
+  readVolunteerData,
+  reconcileVolunteerSignatures,
+  validateVolunteerDraft,
+  volunteerContentHash,
+  volunteerScopeHash,
+} from '../parent-admission/volunteer.validation';
+import {
+  VOLUNTEER_AGREEMENT_VERSION,
+  VOLUNTEER_DECLARATIONS,
+  VOLUNTEER_LEGAL,
+} from '../parent-admission/volunteer.legal';
 import { VOLUNTEER_TEMPLATE_VERSION } from '../parent-admission/volunteer-render.contract';
 
 export const isEditable = (status: string) =>
@@ -156,7 +174,10 @@ export class RegistrationService {
   }
   private withVolunteer<T>(
     actor: AuthUser,
-    work: (target: Awaited<ReturnType<RegistrationRepository['lockTrainee']>>, t: Transaction) => Promise<T>,
+    work: (
+      target: Awaited<ReturnType<RegistrationRepository['lockTrainee']>>,
+      t: Transaction,
+    ) => Promise<T>,
   ) {
     if (!this.auth.hasRole(actor, AUTH_ROLES.VOLUNTEER.id))
       throw new ForbiddenException('Volunteer role required');
@@ -170,7 +191,11 @@ export class RegistrationService {
 
   private volunteerSnapshot(form: RegistrationForm, data: VolunteerData) {
     return {
-      application: { ...this.summary(form), registrationType: 'VOLUNTEER', feedbackReason: form.feedbackReason },
+      application: {
+        ...this.summary(form),
+        registrationType: 'VOLUNTEER',
+        feedbackReason: form.feedbackReason,
+      },
       data,
       contentHash: volunteerContentHash(data),
       declarations: [...VOLUNTEER_DECLARATIONS],
@@ -180,82 +205,158 @@ export class RegistrationService {
     };
   }
 
-  volunteerRenewal(actor: AuthUser, input?: { revision: number; currentStep: number; data: VolunteerData }) {
+  volunteerRenewal(
+    actor: AuthUser,
+    input?: { revision: number; currentStep: number; data: VolunteerData },
+  ) {
     return this.withVolunteer(actor, async ({ user }, t) => {
       let form = await this.repo.active(user.id, t);
       if (!form && !input) {
-        const period = await this.repo.annualRequirement(user.id, user.branchId, t);
+        const period = await this.repo.annualRequirement(
+          user.id,
+          user.branchId,
+          t,
+        );
         if (!period) return null;
         if (!user.nationalIdEncrypted)
-          throw new ConflictException('Volunteer account identity is unavailable');
-        const identity = getNationalIdDetails(decryptNationalId(user.nationalIdEncrypted));
+          throw new ConflictException(
+            'Volunteer account identity is unavailable',
+          );
+        const identity = getNationalIdDetails(
+          decryptNationalId(user.nationalIdEncrypted),
+        );
         if (identity.nationalIdHash !== user.nationalIdHash)
-          throw new ConflictException('Volunteer account identity is inconsistent');
+          throw new ConflictException(
+            'Volunteer account identity is inconsistent',
+          );
         const data = {
           volunteer: { nationalId: identity.normalizedNationalId },
           agreements: { version: VOLUNTEER_AGREEMENT_VERSION },
         };
         return {
-          application: { id: '', branchId: user.branchId, registrationType: 'VOLUNTEER', status: 'DRAFT', revision: 0, currentStep: 1, documentStatus: 'PENDING', feedbackReason: null },
-          data, contentHash: volunteerContentHash(data), declarations: [...VOLUNTEER_DECLARATIONS],
-          declarationVersion: VOLUNTEER_AGREEMENT_VERSION, legal: VOLUNTEER_LEGAL,
+          application: {
+            id: '',
+            branchId: user.branchId,
+            registrationType: 'VOLUNTEER',
+            status: 'DRAFT',
+            revision: 0,
+            currentStep: 1,
+            documentStatus: 'PENDING',
+            feedbackReason: null,
+          },
+          data,
+          contentHash: volunteerContentHash(data),
+          declarations: [...VOLUNTEER_DECLARATIONS],
+          declarationVersion: VOLUNTEER_AGREEMENT_VERSION,
+          legal: VOLUNTEER_LEGAL,
           integration: this.integration?.enabled() ? 'READY' : 'UNAVAILABLE',
         };
       }
       if (!form) {
-        const period = await this.repo.annualRequirement(user.id, user.branchId, t);
+        const period = await this.repo.annualRequirement(
+          user.id,
+          user.branchId,
+          t,
+        );
         if (!period || input!.revision !== 0)
-          throw new ConflictException('No current volunteer renewal matches this revision');
-        form = await this.repo.createForm({
-          traineeUuid: user.id,
-          branchId: user.branchId,
-          activityYearId: period.activityYearId,
-          requestType: 'YEARLY',
-          registrationType: 'VOLUNTEER',
-          blocksAccess: true,
-        }, t);
-        await this.repo.history(user.id, 'DRAFT_CREATED', t, { formId: form.id });
+          throw new ConflictException(
+            'No current volunteer renewal matches this revision',
+          );
+        form = await this.repo.createForm(
+          {
+            traineeUuid: user.id,
+            branchId: user.branchId,
+            activityYearId: period.activityYearId,
+            requestType: 'YEARLY',
+            registrationType: 'VOLUNTEER',
+            blocksAccess: true,
+          },
+          t,
+        );
+        await this.repo.history(user.id, 'DRAFT_CREATED', t, {
+          formId: form.id,
+        });
       }
       await this.ownedForm(form, user.id, user.branchId, 'VOLUNTEER');
       if (form.registrationType !== 'VOLUNTEER')
-        throw new ConflictException('Active registration type does not match volunteer');
+        throw new ConflictException(
+          'Active registration type does not match volunteer',
+        );
       const previous = this.volunteerRenewalData(form.draftData);
       if (!input) return this.volunteerSnapshot(form, previous);
-      if (!isEditable(form.status)) throw new ConflictException('Submitted content is immutable');
+      if (!isEditable(form.status))
+        throw new ConflictException('Submitted content is immutable');
       this.revision(form, input.revision);
       validateVolunteerDraft(input.data);
       const next = structuredClone(input.data);
       if (next.volunteer?.nationalId) {
         const identity = getNationalIdDetails(next.volunteer.nationalId);
         if (identity.nationalIdHash !== user.nationalIdHash)
-          throw new BadRequestException('Registration identity does not match the existing account');
+          throw new BadRequestException(
+            'Registration identity does not match the existing account',
+          );
         next.volunteer.nationalId = identity.normalizedNationalId;
       }
       if (next.parentConsent?.nationalId)
-        next.parentConsent.nationalId = next.parentConsent.nationalId.padStart(9, '0');
-      const data = reconcileSignatures(previous, next, VOLUNTEER_AGREEMENT_VERSION);
+        next.parentConsent.nationalId = next.parentConsent.nationalId.padStart(
+          9,
+          '0',
+        );
+      const data = reconcileVolunteerSignatures(previous, next);
       for (const purpose of VOLUNTEER_PURPOSES)
-        if (data.signatures?.[purpose] && data.signatures[purpose]!.contentHash !== volunteerScopeHash(data, purpose))
-          throw new BadRequestException('Signature does not bind its covered data');
-      await form.update({
-        draftData: protectVolunteerData(data),
-        draftRevision: form.draftRevision + 1,
-        currentStep: input.currentStep,
-      }, { transaction: t });
+        if (
+          data.signatures?.[purpose] &&
+          data.signatures[purpose]!.contentHash !==
+            volunteerScopeHash(data, purpose) &&
+          data.signatures[purpose]!.contentHash !==
+            legacyVolunteerScopeHash(data, purpose)
+        )
+          throw new BadRequestException(
+            'Signature does not bind its covered data',
+          );
+      await form.update(
+        {
+          draftData: protectVolunteerData(data),
+          draftRevision: form.draftRevision + 1,
+          currentStep: input.currentStep,
+        },
+        { transaction: t },
+      );
       return this.volunteerSnapshot(form, data);
     });
   }
 
-  uploadVolunteerRenewal(actor: AuthUser, revision: number, kind: string, bytes: Buffer, purpose?: VolunteerPurpose) {
+  uploadVolunteerRenewal(
+    actor: AuthUser,
+    revision: number,
+    kind: string,
+    bytes: Buffer,
+    purpose?: VolunteerPurpose,
+  ) {
     return this.withVolunteer(actor, async ({ user }, t) => {
       const form = await this.repo.active(user.id, t);
-      if (!form || form.registrationType !== 'VOLUNTEER' || !isEditable(form.status) || !this.integration?.enabled())
-        throw new ConflictException('Save an editable volunteer renewal before uploading');
+      if (
+        !form ||
+        form.registrationType !== 'VOLUNTEER' ||
+        !isEditable(form.status) ||
+        !this.integration?.enabled()
+      )
+        throw new ConflictException(
+          'Save an editable volunteer renewal before uploading',
+        );
       if (kind !== 'SIGNATURE' && kind !== 'POLICE_CLEARANCE')
         throw new BadRequestException('Invalid volunteer attachment kind');
       await this.ownedForm(form, user.id, user.branchId, 'VOLUNTEER');
       this.revision(form, revision);
-      return this.integration.uploadVolunteer(form.id, kind, this.volunteerRenewalData(form.draftData), bytes, purpose, t, 'renewal');
+      return this.integration.uploadVolunteer(
+        form.id,
+        kind,
+        this.volunteerRenewalData(form.draftData),
+        bytes,
+        purpose,
+        t,
+        'renewal',
+      );
     });
   }
 
@@ -265,55 +366,111 @@ export class RegistrationService {
       await this.ownedForm(form, user.id, user.branchId, 'VOLUNTEER');
       if (form.registrationType !== 'VOLUNTEER')
         throw new ConflictException('Registration is not a volunteer renewal');
-      const prior = await this.repo.idempotent(form.id, input.idempotencyKey, t);
+      const prior = await this.repo.idempotent(
+        form.id,
+        input.idempotencyKey,
+        t,
+      );
       if (prior) {
         if (prior.submittedRevision !== input.revision)
           throw new ConflictException('Idempotency key revision mismatch');
         return { form, version: prior, idempotent: true };
       }
       if (!isEditable(form.status) || !this.integration?.enabled())
-        throw new ConflictException('Volunteer renewal is not available for submission');
+        throw new ConflictException(
+          'Volunteer renewal is not available for submission',
+        );
       this.revision(form, input.revision);
       const data = readVolunteerData(form.draftData);
-      if (getNationalIdDetails(data.volunteer?.nationalId ?? '').nationalIdHash !== user.nationalIdHash)
-        throw new BadRequestException('Registration identity does not match the existing account');
+      if (
+        getNationalIdDetails(data.volunteer?.nationalId ?? '')
+          .nationalIdHash !== user.nationalIdHash
+      )
+        throw new BadRequestException(
+          'Registration identity does not match the existing account',
+        );
       const documents = await this.repo.documents(form.id, t);
-      await this.integration.verifyVolunteerSigned(form.id, data, documents, t, undefined, 'renewal');
+      await this.integration.verifyVolunteerSigned(
+        form.id,
+        data,
+        documents,
+        t,
+        undefined,
+        'renewal',
+      );
       const versions = await this.repo.versions(form.id, t);
-      const refs = Object.values(data.signatures ?? {}).map((signature) => signature.documentId);
-      if (new Set(refs).size !== refs.length || versions.some((version) =>
-        Object.values(readVolunteerData(version.formData).signatures ?? {}).some((signature) => refs.includes(signature.documentId))))
-        throw new ConflictException('Submission requires separate, fresh signatures');
+      const refs = Object.values(data.signatures ?? {}).map(
+        (signature) => signature.documentId,
+      );
+      if (
+        new Set(refs).size !== refs.length ||
+        versions.some((version) =>
+          Object.values(
+            readVolunteerData(version.formData).signatures ?? {},
+          ).some((signature) => refs.includes(signature.documentId)),
+        )
+      )
+        throw new ConflictException(
+          'Submission requires separate, fresh signatures',
+        );
       const versionNumber = (versions[0]?.versionNumber ?? 0) + 1;
       const submittedAt = new Date();
-      const version = await this.repo.createVersion({
-        formId: form.id,
-        registrationType: 'VOLUNTEER',
-        versionNumber,
-        submittedAt,
-        formData: protectVolunteerData(data),
-        templateVersion: VOLUNTEER_TEMPLATE_VERSION,
-        declarationVersion: VOLUNTEER_AGREEMENT_VERSION,
-        declarations: [...VOLUNTEER_DECLARATIONS],
-        signingMetadata: { contentHash: volunteerContentHash(data) },
-        idempotencyKey: input.idempotencyKey,
-        submittedRevision: input.revision,
-      }, t);
-      await form.update({ status: 'PENDING_REVIEW', submittedAt, documentStatus: 'PENDING', feedbackReason: null }, { transaction: t });
-      await this.repo.history(user.id, versionNumber === 1 ? 'SUBMITTED' : 'RESUBMITTED', t,
-        { formId: form.id, versionId: version.id }, { versionNumber, documentStatus: 'PENDING' });
+      const version = await this.repo.createVersion(
+        {
+          formId: form.id,
+          registrationType: 'VOLUNTEER',
+          versionNumber,
+          submittedAt,
+          formData: protectVolunteerData(data),
+          templateVersion: VOLUNTEER_TEMPLATE_VERSION,
+          declarationVersion: VOLUNTEER_AGREEMENT_VERSION,
+          declarations: [...VOLUNTEER_DECLARATIONS],
+          signingMetadata: { contentHash: volunteerContentHash(data) },
+          idempotencyKey: input.idempotencyKey,
+          submittedRevision: input.revision,
+        },
+        t,
+      );
+      await form.update(
+        {
+          status: 'PENDING_REVIEW',
+          submittedAt,
+          documentStatus: 'PENDING',
+          feedbackReason: null,
+        },
+        { transaction: t },
+      );
+      await this.repo.history(
+        user.id,
+        versionNumber === 1 ? 'SUBMITTED' : 'RESUBMITTED',
+        t,
+        { formId: form.id, versionId: version.id },
+        { versionNumber, documentStatus: 'PENDING' },
+      );
       return { form, version, idempotent: false };
     });
     if (result.form.status === 'PENDING_REVIEW') {
       try {
-        await this.integration!.generate('renewal', result.form.id, result.version.id, this.actor(actor));
+        await this.integration!.generate(
+          'renewal',
+          result.form.id,
+          result.version.id,
+          this.actor(actor),
+        );
         result.form.documentStatus = 'READY';
       } catch {
         result.form.documentStatus = 'FAILED';
       }
     }
-    return { ...this.volunteerSnapshot(result.form, readVolunteerData(result.version.formData)),
-      versionId: result.version.id, versionNumber: result.version.versionNumber, idempotent: result.idempotent };
+    return {
+      ...this.volunteerSnapshot(
+        result.form,
+        readVolunteerData(result.version.formData),
+      ),
+      versionId: result.version.id,
+      versionNumber: result.version.versionNumber,
+      idempotent: result.idempotent,
+    };
   }
 
   private volunteerRenewalData(raw: unknown) {
@@ -329,7 +486,11 @@ export class RegistrationService {
   volunteerStatus(actor: AuthUser) {
     return this.withVolunteer(actor, async ({ user }, t) => {
       const form = await this.repo.active(user.id, t);
-      const period = await this.repo.annualRequirement(user.id, user.branchId, t);
+      const period = await this.repo.annualRequirement(
+        user.id,
+        user.branchId,
+        t,
+      );
       const enabled = getBooleanEnv('VOLUNTEER_ANNUAL_RENEWAL_ENABLED', false);
       return {
         required: enabled && !!(period || form?.blocksAccess),
@@ -438,20 +599,21 @@ export class RegistrationService {
         throw new ConflictException('Submitted content is immutable');
       this.revision(form, input.revision);
       const previous = readData(form.draftData);
-      const next = structuredClone(input.data);
+      let next = structuredClone(input.data);
       retainParentApplicability(previous, next);
       const hash = contentHash(next);
-      // Signing is a separate autosave of the same content hash returned by GET/PATCH.
-      // A content change always removes both signatures, even when supplied in this PATCH.
-      if (hash !== contentHash(previous)) delete next.signatures;
-      for (const signature of Object.values(next.signatures ?? {})) {
+      next = reconcileRegistrationSignatures(previous, next);
+      for (const signer of ['parent1', 'parent2'] as const) {
+        const signature = next.signatures?.[signer];
+        if (!signature) continue;
         if (
           !signature.documentId ||
           !signature.signedAt ||
-          signature.contentHash !== hash
+          (signature.contentHash !== signatureContentHash(next, signer) &&
+            signature.contentHash !== hash)
         )
           throw new BadRequestException(
-            'Signature must bind the current complete content',
+            'Signature must bind the current signed declaration',
           );
       }
       await form.update(
@@ -730,9 +892,14 @@ export class RegistrationService {
         const form = await this.observed('admin-form', () =>
           this.repo.form(formId, t),
         );
-        const requiredRole = form.registrationType === 'VOLUNTEER' ? AUTH_ROLES.VOLUNTEER.id : AUTH_ROLES.TRAINEE.id;
+        const requiredRole =
+          form.registrationType === 'VOLUNTEER'
+            ? AUTH_ROLES.VOLUNTEER.id
+            : AUTH_ROLES.TRAINEE.id;
         if (!target.roles.some((role) => role.roleId === requiredRole))
-          throw new ForbiddenException('Target role does not match registration type');
+          throw new ForbiddenException(
+            'Target role does not match registration type',
+          );
         if (this.integration?.enabled()) {
           await this.observed('admin-attestation', () =>
             this.integration!.attest(t),
@@ -780,7 +947,9 @@ export class RegistrationService {
           id: v.id,
           versionNumber: v.versionNumber,
           submittedAt: v.submittedAt,
-          data: volunteer ? readVolunteerData(v.formData) : readData(v.formData),
+          data: volunteer
+            ? readVolunteerData(v.formData)
+            : readData(v.formData),
           declarationVersion: v.declarationVersion,
           declarations: v.declarations,
         })),
@@ -826,7 +995,9 @@ export class RegistrationService {
     if (!reason.trim()) throw new BadRequestException('A reason is required');
     return this.adminForm(actor, formId, async (form, _target, t) => {
       if (form.status !== 'PENDING_REVIEW')
-        throw new ConflictException('Only pending registrations can be rejected');
+        throw new ConflictException(
+          'Only pending registrations can be rejected',
+        );
       const version = await this.repo.latestVersion(form.id, t);
       if (!version) throw new ConflictException('Submitted version missing');
       await form.update(
@@ -867,20 +1038,40 @@ export class RegistrationService {
         });
       if (form.registrationType === 'VOLUNTEER') {
         if (!this.integration?.enabled())
-          throw new ConflictException('Volunteer evidence integration is unavailable');
+          throw new ConflictException(
+            'Volunteer evidence integration is unavailable',
+          );
         const data = readVolunteerData(version.formData);
-        if (version.signingMetadata.contentHash !== volunteerContentHash(data) ||
-            pdf.registrationType !== 'VOLUNTEER' ||
-            pdf.contentHash !== version.signingMetadata.contentHash ||
-            getNationalIdDetails(data.volunteer?.nationalId ?? '').nationalIdHash !== user.nationalIdHash)
-          throw new ConflictException('Signed volunteer content does not match the reviewed version');
-        await this.integration.verifyVolunteerSigned(form.id, data, docs, t, new Date(version.submittedAt), 'renewal');
+        if (
+          version.signingMetadata.contentHash !== volunteerContentHash(data) ||
+          pdf.registrationType !== 'VOLUNTEER' ||
+          pdf.contentHash !== version.signingMetadata.contentHash ||
+          getNationalIdDetails(data.volunteer?.nationalId ?? '')
+            .nationalIdHash !== user.nationalIdHash
+        )
+          throw new ConflictException(
+            'Signed volunteer content does not match the reviewed version',
+          );
+        await this.integration.verifyVolunteerSigned(
+          form.id,
+          data,
+          docs,
+          t,
+          new Date(version.submittedAt),
+          'renewal',
+        );
         await this.integration.download(pdf, 'renewal', form.id, t);
       } else {
         const data = readData(version.formData);
         validateSubmission(data);
         if (this.integration?.enabled()) {
-          await this.integration.verifySigned('renewal', form.id, data, docs, t);
+          await this.integration.verifySigned(
+            'renewal',
+            form.id,
+            data,
+            docs,
+            t,
+          );
           await this.integration.download(pdf, 'renewal', form.id, t);
         }
         await user.update(approvedProfileMapping(data), { transaction: t });

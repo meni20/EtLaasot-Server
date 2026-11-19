@@ -5,6 +5,8 @@ import {
   contentHash,
   protectData,
   readData,
+  reconcileRegistrationSignatures,
+  signatureContentHash,
   validateDraft,
   validateSubmission,
 } from './registration.validation';
@@ -29,6 +31,13 @@ describe('Parent registration data and signing policy (offline)', () => {
       }),
     ).not.toThrow();
     expect(() => validateSubmission({})).toThrow();
+  });
+  it('autosaves incomplete contact values but rejects them on submission', () => {
+    const partial = {
+      trainee: { email: 'name@', phone: '0', dateOfBirth: '2026-' },
+    };
+    expect(() => validateDraft(partial)).not.toThrow();
+    expect(() => validateSubmission(partial)).toThrow();
   });
   it.each([false, true])(
     'validates a complete fictional form, twoParents=%s',
@@ -104,6 +113,26 @@ describe('Parent registration data and signing policy (offline)', () => {
     data.medical!.allergies = 'new information';
     expect(contentHash(data)).not.toBe(hash);
     expect(() => validateSubmission(data)).toThrow();
+  });
+  it('keeps signatures for unrelated completion and invalidates signed identity', () => {
+    const data = fictionalRegistration(true);
+    data.signatures!.parent1!.contentHash = signatureContentHash(
+      data,
+      'parent1',
+    );
+    data.signatures!.parent2!.contentHash = signatureContentHash(
+      data,
+      'parent2',
+    );
+    const completed = structuredClone(data);
+    completed.contacts!.schoolCounselor = 'פרט שהושלם מאוחר יותר';
+    expect(reconcileRegistrationSignatures(data, completed).signatures).toEqual(
+      data.signatures,
+    );
+    completed.parent1!.name = 'חותם אחר';
+    const changed = reconcileRegistrationSignatures(data, completed);
+    expect(changed.signatures?.parent1).toBeUndefined();
+    expect(changed.signatures?.parent2).toEqual(data.signatures!.parent2);
   });
   it('encrypts all IDs at rest, without changing the signed data on read', () => {
     const data = fictionalRegistration();

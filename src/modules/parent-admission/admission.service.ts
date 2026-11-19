@@ -1,4 +1,8 @@
-import { retainParentApplicability } from '../parent-registration/registration.validation';
+import {
+  reconcileRegistrationSignatures,
+  retainParentApplicability,
+  signatureContentHash,
+} from '../parent-registration/registration.validation';
 import {
   VOLUNTEER_LEGAL,
   VOLUNTEER_AGREEMENT_VERSION,
@@ -9,7 +13,6 @@ import { volunteerApprovedProfileMapping } from './volunteer-profile.mapping';
 import {
   VOLUNTEER_PURPOSES,
   jerusalemDate,
-  reconcileSignatures,
   needsParent,
   type VolunteerData,
   type VolunteerPurpose,
@@ -21,6 +24,8 @@ import {
   protectVolunteerData,
   volunteerContentHash,
   volunteerScopeHash,
+  legacyVolunteerScopeHash,
+  reconcileVolunteerSignatures,
 } from './volunteer.validation';
 import type { ApplicationFormData } from './admission.policy';
 import {
@@ -378,17 +383,18 @@ export class AdmissionService {
         if (next.parentConsent?.nationalId)
           next.parentConsent.nationalId =
             next.parentConsent.nationalId.padStart(9, '0');
-        const data = reconcileSignatures(
+        const data = reconcileVolunteerSignatures(
           readVolunteerData(app.draftData),
           next,
-          VOLUNTEER_AGREEMENT_VERSION,
         );
         if (branchChanged) delete data.signatures;
         for (const purpose of VOLUNTEER_PURPOSES)
           if (
             data.signatures?.[purpose] &&
             data.signatures[purpose]!.contentHash !==
-              volunteerScopeHash(data, purpose)
+              volunteerScopeHash(data, purpose) &&
+            data.signatures[purpose]!.contentHash !==
+              legacyVolunteerScopeHash(data, purpose)
           )
             throw new BadRequestException(
               'Signature does not bind its covered data',
@@ -416,7 +422,7 @@ export class AdmissionService {
           code: 'DRAFT_REVISION_CONFLICT',
           message: 'Reload the application before editing',
         });
-      const next = structuredClone(input.data as RegistrationData);
+      let next = structuredClone(input.data as RegistrationData);
       if (
         getNationalIdDetails(next.trainee?.nationalId ?? '').nationalIdHash !==
         app.nationalIdHash
@@ -428,13 +434,20 @@ export class AdmissionService {
       const previous = readData(app.draftData as RegistrationData);
       retainParentApplicability(previous, next);
       const hash = contentHash(next);
-      if (branchChanged || hash !== contentHash(previous))
-        delete next.signatures;
-      for (const signing of Object.values(next.signatures ?? {}))
-        if (signing.contentHash !== hash)
+      next = branchChanged
+        ? { ...next, signatures: undefined }
+        : reconcileRegistrationSignatures(previous, next);
+      for (const signer of ['parent1', 'parent2'] as const) {
+        const signing = next.signatures?.[signer];
+        if (
+          signing &&
+          signing.contentHash !== signatureContentHash(next, signer) &&
+          signing.contentHash !== hash
+        )
           throw new BadRequestException(
-            'Signature does not bind current content',
+            'Signature does not bind current signed declaration',
           );
+      }
       await app.update(
         {
           draftData: protectData(next),
@@ -456,7 +469,7 @@ export class AdmissionService {
   private requiredEvidence(
     data: RegistrationData,
     docs: ApplicationEvidence[],
-    hash: string,
+    _hash: string,
     type: RegistrationType = 'TRAINEE',
   ) {
     admissionPolicy(type).validateSubmission(data);
@@ -475,7 +488,15 @@ export class AdmissionService {
       if (
         !doc ||
         !doc.verifiedAt ||
-        (doc.kind === 'SIGNATURE' && doc.contentHash !== hash) ||
+        (doc.kind === 'SIGNATURE' &&
+          !Object.entries(data.signatures ?? {}).some(
+            ([signer, signature]) =>
+              signature.documentId === doc.id &&
+              signature.contentHash === doc.contentHash &&
+              (signature.contentHash ===
+                signatureContentHash(data, signer as 'parent1' | 'parent2') ||
+                signature.contentHash === contentHash(data)),
+          )) ||
         doc.fileSize <= 0 ||
         !/^[a-f0-9]{64}$/.test(doc.checksum)
       )

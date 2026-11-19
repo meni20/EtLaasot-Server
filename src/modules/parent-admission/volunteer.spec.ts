@@ -92,18 +92,36 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
   const clone = global.structuredClone;
   try {
     // Keep JSON fixtures in Jest's VM realm for strict plain-object validation.
-    global.structuredClone = value => JSON.parse(JSON.stringify(value));
+    global.structuredClone = (value) => JSON.parse(JSON.stringify(value));
     process.env.VOLUNTEER_REGISTRATION_ENABLED = 'true';
     process.env.NATIONAL_ID_HASH_SECRET = 'fictional-welcome-volunteer';
     process.env.NATIONAL_ID_ENCRYPTION_KEY = randomBytes(32).toString('hex');
-    const data = complete(), id = randomUUID(), userId = randomUUID(), actorId = randomUUID();
-    const policy = admissionPolicy('VOLUNTEER'), t = { fictionalOuterTransaction: true };
-    const app: any = { id, branchId: 'fictional-branch', registrationType: 'VOLUNTEER', status: 'PENDING_REVIEW',
-      documentStatus: 'READY', nationalIdHash: getNationalIdDetails(data.volunteer!.nationalId!).nationalIdHash };
+    const data = complete(),
+      id = randomUUID(),
+      userId = randomUUID(),
+      actorId = randomUUID();
+    const policy = admissionPolicy('VOLUNTEER'),
+      t = { fictionalOuterTransaction: true };
+    const app: any = {
+      id,
+      branchId: 'fictional-branch',
+      registrationType: 'VOLUNTEER',
+      status: 'PENDING_REVIEW',
+      documentStatus: 'READY',
+      nationalIdHash: getNationalIdDetails(data.volunteer!.nationalId!)
+        .nationalIdHash,
+    };
     app.update = jest.fn(async (value: any) => Object.assign(app, value));
-    const latest = { id: randomUUID(), registrationType: 'VOLUNTEER', createdAt: new Date('2026-01-01T12:00:00Z'),
-      formData: protectVolunteerData(data), contentHash: volunteerContentHash(data),
-      templateVersion: VOLUNTEER_TEMPLATE_VERSION, declarationVersion: policy.declarationVersion, declarations: [...policy.declarations] };
+    const latest = {
+      id: randomUUID(),
+      registrationType: 'VOLUNTEER',
+      createdAt: new Date('2026-01-01T12:00:00Z'),
+      formData: protectVolunteerData(data),
+      contentHash: volunteerContentHash(data),
+      templateVersion: VOLUNTEER_TEMPLATE_VERSION,
+      declarationVersion: policy.declarationVersion,
+      declarations: [...policy.declarations],
+    };
     let created = false;
     const approvalYearId = randomUUID();
     const repo = { lockApplicantSession: jest.fn(), transaction: async (work: any) => work(t), application: async () => app,
@@ -124,18 +142,31 @@ it('volunteer approval enqueues one welcome message in the account transaction; 
     expect(users.createUserWithRole).toHaveBeenCalledWith(expect.objectContaining({ branchId: app.branchId }), t);
     expect(welcome.enqueue).toHaveBeenCalledWith(expect.objectContaining({ applicationId: id, userId, email: data.volunteer?.email, authorized: true }), t);
     expect(result.temporaryPassword).toBe('fictional-manual-secret');
-    expect(await service.approve(actor, id, latest.id, true)).toMatchObject({ idempotent: true });
-    expect(welcome.enqueue).toHaveBeenCalledTimes(1); expect(users.createUserWithRole).toHaveBeenCalledTimes(1);
-  } finally { process.env = original; global.structuredClone = clone; }
+    expect(await service.approve(actor, id, latest.id, true)).toMatchObject({
+      idempotent: true,
+    });
+    expect(welcome.enqueue).toHaveBeenCalledTimes(1);
+    expect(users.createUserWithRole).toHaveBeenCalledTimes(1);
+  } finally {
+    process.env = original;
+    global.structuredClone = clone;
+  }
 });
 describe('Volunteer source, validation and independent signing scopes (offline)', () => {
   it('keeps the portable Client contract identical across checkout line endings', () => {
-    const clientRoot = process.env.VOLUNTEER_CONTRACT_CLIENT_ROOT ??
+    const clientRoot =
+      process.env.VOLUNTEER_CONTRACT_CLIENT_ROOT ??
       path.resolve(__dirname, '../../../../EtLaasot-Client');
     const readContract = (file: string) =>
       fs.readFileSync(file, 'utf8').replace(/\r\n/g, '\n');
-    expect(readContract(path.join(clientRoot, 'src/features/volunteer-registration/contracts.ts')))
-      .toBe(readContract(path.join(__dirname, 'volunteer.contract.ts')));
+    expect(
+      readContract(
+        path.join(
+          clientRoot,
+          'src/features/volunteer-registration/contracts.ts',
+        ),
+      ),
+    ).toBe(readContract(path.join(__dirname, 'volunteer.contract.ts')));
   });
   it('retains source-specific wording, confidentiality and the original missing question number', () => {
     const template = JSON.parse(
@@ -176,11 +207,13 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
     ).not.toThrow();
     for (const data of [
       { role: 'ADMIN' },
-      { volunteer: { phone: 'invented' } },
       { agreements: { volunteer: 'true' } },
       { signatures: { UNKNOWN: {} } },
     ])
       expect(() => validateVolunteerDraft(data)).toThrow();
+    expect(() =>
+      validateVolunteerDraft({ volunteer: { phone: 'invented' } }),
+    ).not.toThrow();
   });
   it('accepts complete adult and minor submissions and enforces parental consent on the server', () => {
     expect(() =>
@@ -212,11 +245,15 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
     const preference = structuredClone(data);
     preference.questionnaire!.motivation = 'שינוי';
     const a = reconcileSignatures(data, preference, version);
-    expect(a.signatures!.VOLUNTEER_AGREEMENT).toBeUndefined();
+    expect(a.signatures!.VOLUNTEER_AGREEMENT).toEqual(
+      data.signatures!.VOLUNTEER_AGREEMENT,
+    );
     expect(a.signatures!.PARENTAL_CONSENT).toEqual(
       data.signatures!.PARENTAL_CONSENT,
     );
-    expect(a.signatures!.CONFIDENTIALITY).toBeUndefined();
+    expect(a.signatures!.CONFIDENTIALITY).toEqual(
+      data.signatures!.CONFIDENTIALITY,
+    );
     const parent = structuredClone(data);
     parent.parentConsent!.name = 'אחר';
     const b = reconcileSignatures(data, parent, version);
@@ -224,12 +261,14 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
       data.signatures!.VOLUNTEER_AGREEMENT,
     );
     expect(b.signatures!.PARENTAL_CONSENT).toBeUndefined();
-    expect(b.signatures!.CONFIDENTIALITY).toBeUndefined();
+    expect(b.signatures!.CONFIDENTIALITY).toEqual(
+      data.signatures!.CONFIDENTIALITY,
+    );
     const upload = structuredClone(data);
     upload.policeClearanceDocumentId = randomUUID();
     const c = reconcileSignatures(data, upload, version);
     expect(c.signatures!.VOLUNTEER_AGREEMENT).toBeDefined();
-    expect(c.signatures!.CONFIDENTIALITY).toBeUndefined();
+    expect(c.signatures!.CONFIDENTIALITY).toBeDefined();
   });
   it('rejects forged hashes, unknown versions, future dates and missing required clearance', () => {
     const data = complete();
@@ -289,7 +328,8 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
     expect(() => validateVolunteerDraft(data)).not.toThrow();
     expect(() => validateVolunteerSubmission(data, '2026-10-25')).toThrow();
     data.volunteer!.phone = 'invalid';
-    expect(() => validateVolunteerDraft(data)).toThrow();
+    expect(() => validateVolunteerDraft(data)).not.toThrow();
+    expect(() => validateVolunteerSubmission(data, '2026-10-25')).toThrow();
   });
   it('maps every submitted field and only the personal phone to the future profile', () => {
     const data = complete(true),
@@ -328,7 +368,13 @@ describe('Volunteer source, validation and independent signing scopes (offline)'
 });
 
 it('accepts and preserves no preference in all three questionnaire fields', () => {
- const data: VolunteerData={questionnaire:{age:'לא משנה לי',communication:'לא משנה לי',diaper:'לא משנה לי'}};
- expect(()=>validateVolunteerDraft(data)).not.toThrow();
- expect(readVolunteerData(protectVolunteerData(data))).toEqual(data);
+  const data: VolunteerData = {
+    questionnaire: {
+      age: 'לא משנה לי',
+      communication: 'לא משנה לי',
+      diaper: 'לא משנה לי',
+    },
+  };
+  expect(() => validateVolunteerDraft(data)).not.toThrow();
+  expect(readVolunteerData(protectVolunteerData(data))).toEqual(data);
 });

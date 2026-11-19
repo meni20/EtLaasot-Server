@@ -66,6 +66,7 @@ import Branch from '../branch/entities/branch.entity';
 import {
   contentHash,
   readData,
+  signatureContentHash,
   validateSubmission,
   type RegistrationData,
 } from './registration.validation';
@@ -399,7 +400,6 @@ export class RegistrationIntegrationService {
     t?: Transaction,
   ) {
     validateSubmission(data);
-    const hash = contentHash(data);
     const medical = docs.find(
       (d) =>
         d.id === data.medical!.physicianSummaryDocumentId &&
@@ -416,8 +416,9 @@ export class RegistrationIntegrationService {
       );
       if (
         !doc ||
-        doc.storagePath.split('/')[3] !== hash ||
+        doc.storagePath.split('/')[3] !== signing.contentHash ||
         doc.storagePath.split('/')[4] !== key ||
+        signing.contentHash !== signatureContentHash(data, key) ||
         (!doc.createdAt ? '' : new Date(doc.createdAt).toISOString()) !==
           signing.signedAt
       )
@@ -460,7 +461,10 @@ export class RegistrationIntegrationService {
           'Medical image uploads require approved migration 032; PDF uploads remain available',
         );
     }
-    const hash = contentHash(data),
+    const hash =
+        kind === 'SIGNATURE'
+          ? signatureContentHash(data, signer!)
+          : contentHash(data),
       docId = randomUUID(),
       createdAt = new Date();
     const storagePath = `registration/${scope}/${id}/${hash}/${kind === 'SIGNATURE' ? signer : 'medical'}/${docId}.${info.extension}`;
